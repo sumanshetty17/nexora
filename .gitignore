@@ -16,3 +16,4 @@ artifacts
 .grok/og-pending
 .output
 node_modules
+.grok/preview.pid

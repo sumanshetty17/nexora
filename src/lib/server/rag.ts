@@ -1,6 +1,26 @@
 import type { Sql } from "@/lib/db";
 import { nid } from "@/lib/utils";
 
+const STOPWORDS = new Set([
+  "about",
+  "does",
+  "have",
+  "how",
+  "the",
+  "what",
+  "when",
+  "where",
+  "which",
+  "your",
+  "with",
+  "from",
+  "that",
+  "this",
+  "please",
+  "could",
+  "would",
+]);
+
 export function chunkText(text: string, size = 900, overlap = 120): string[] {
   const clean = text.replaceAll("\r", "").replace(/\n{3,}/g, "\n\n").trim();
   if (!clean) return [];
@@ -68,14 +88,14 @@ export async function retrieveChunks(
     [siteId, q, limit],
   );
 
-  if (fts.length >= 2) {
+  if (fts.length >= 1) {
     return fts.map(({ content, title, sourceUrl }) => ({ content, title, sourceUrl }));
   }
 
   const terms = q
     .toLowerCase()
     .split(/[^a-z0-9]+/)
-    .filter((t) => t.length > 2)
+    .filter((t) => t.length > 3 && !STOPWORDS.has(t))
     .slice(0, 6);
 
   if (terms.length === 0) {
