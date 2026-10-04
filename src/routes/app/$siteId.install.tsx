@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input, Label } from "@/components/ui/input";
 import { getSite, updateSite } from "@/lib/server/sites";
 
 export const Route = createFileRoute("/app/$siteId/install")({ component: InstallPage });
@@ -19,6 +20,25 @@ function InstallPage() {
     : "";
 
   const [copied, setCopied] = useState(false);
+  const [color, setColor] = useState<string | null>(null);
+  const [origins, setOrigins] = useState<string | null>(null);
+
+  const save = useMutation({
+    mutationFn: () =>
+      updateSite({
+        data: {
+          siteId,
+          brandColor: color ?? site?.brandColor,
+          allowedOrigins: origins ?? site?.allowedOrigins,
+        },
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["site", siteId] });
+      toast.success("Widget look saved");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const goLive = useMutation({
     mutationFn: () => updateSite({ data: { siteId, status: "live" } }),
     onSuccess: async () => {
@@ -36,29 +56,70 @@ function InstallPage() {
           Nexora frame — customers stay on your domain.
         </p>
       </div>
-      <Card>
-        <p className="text-xs uppercase tracking-wider text-muted">Embed snippet</p>
-        <pre className="mt-3 overflow-x-auto rounded-2xl bg-sidebar p-4 text-sm text-sidebar-fg">
-          <code>{snippet}</code>
-        </pre>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button
-            type="button"
-            onClick={async () => {
-              await navigator.clipboard.writeText(snippet);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
-            }}
-          >
-            {copied ? "Copied" : "Copy snippet"}
-          </Button>
-          {site?.status !== "live" ? (
-            <Button variant="secondary" onClick={() => goLive.mutate()}>
-              Mark live
+      <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+        <Card>
+          <p className="text-xs uppercase tracking-wider text-muted">Embed snippet</p>
+          <pre className="mt-3 overflow-x-auto rounded-2xl bg-sidebar p-4 text-sm text-sidebar-fg">
+            <code>{snippet}</code>
+          </pre>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              onClick={async () => {
+                await navigator.clipboard.writeText(snippet);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+            >
+              {copied ? "Copied" : "Copy snippet"}
             </Button>
+            {site?.status !== "live" ? (
+              <Button variant="secondary" onClick={() => goLive.mutate()}>
+                Mark live
+              </Button>
+            ) : null}
+          </div>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Brand color</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  aria-label="Brand color"
+                  className="size-11 cursor-pointer rounded-lg border border-border bg-bg p-1"
+                  value={color ?? site?.brandColor ?? "#21564A"}
+                  onChange={(e) => setColor(e.target.value)}
+                />
+                <Input
+                  value={color ?? site?.brandColor ?? ""}
+                  onChange={(e) => setColor(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Allowed origins</Label>
+              <Input
+                value={origins ?? site?.allowedOrigins ?? "*"}
+                onChange={(e) => setOrigins(e.target.value)}
+                placeholder="https://yourcompany.com, *"
+              />
+            </div>
+          </div>
+          <Button className="mt-4" type="button" onClick={() => save.mutate()} disabled={save.isPending}>
+            Save widget
+          </Button>
+        </Card>
+        <Card className="overflow-hidden p-0">
+          <p className="px-5 pt-5 text-xs uppercase tracking-wider text-muted">Live preview</p>
+          {site ? (
+            <iframe
+              title="Widget preview"
+              src={`/w/${site.publicId}`}
+              className="mt-3 h-[520px] w-full border-t border-border bg-surface"
+            />
           ) : null}
-        </div>
-      </Card>
+        </Card>
+      </div>
       <Card>
         <p className="text-xs uppercase tracking-wider text-muted">Direct link</p>
         <p className="mt-2 text-sm text-muted">Preview the widget as a standalone page:</p>

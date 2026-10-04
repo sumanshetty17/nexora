@@ -41,3 +41,11 @@ export const deleteDoc = createServerFn({ method: "POST" })
     const { deleteDocForSite } = await import("./knowledge.server");
     return deleteDocForSite(context.userId, data);
   });
+
+export const generateFaqs = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((siteId: string) => siteId)
+  .handler(async ({ context, data: siteId }) => {
+    const { generateFaqsForSite } = await import("./knowledge.server");
+    return generateFaqsForSite(context.userId, siteId);
+  });

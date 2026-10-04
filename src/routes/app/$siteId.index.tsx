@@ -8,7 +8,9 @@ import { Card } from "@/components/ui/card";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { playgroundChat } from "@/lib/server/chat";
 import { getInsights } from "@/lib/server/insights";
+import { listDocs } from "@/lib/server/knowledge";
 import { getSite, prepareAssistant, updateSite } from "@/lib/server/sites";
+import { Check } from "lucide-react";
 import { useState } from "react";
 
 export const Route = createFileRoute("/app/$siteId/")({ component: SiteOverview });
@@ -18,6 +20,7 @@ function SiteOverview() {
   const qc = useQueryClient();
   const siteQ = useQuery({ queryKey: ["site", siteId], queryFn: () => getSite({ data: siteId }) });
   const insights = useQuery({ queryKey: ["insights", siteId], queryFn: () => getInsights({ data: siteId }) });
+  const docs = useQuery({ queryKey: ["docs", siteId], queryFn: () => listDocs({ data: siteId }) });
   const site = siteQ.data;
   const [welcome, setWelcome] = useState<string | null>(null);
   const [tone, setTone] = useState<string | null>(null);
@@ -52,6 +55,22 @@ function SiteOverview() {
   }
 
   const top = insights.data?.topics[0];
+  const hasKnowledge = (docs.data?.length ?? site.docCount ?? 0) > 0;
+  const prepared = Boolean(site.systemBrief);
+  const hasTraffic = (insights.data?.totalConversations ?? 0) > 0;
+  const live = site.status === "live";
+  const steps: {
+    done: boolean;
+    label: string;
+    hint: string;
+    href?: "knowledge" | "install";
+    action?: "prepare";
+  }[] = [
+    { done: hasKnowledge, label: "Train on knowledge", href: "knowledge", hint: "Crawl the site or paste policies" },
+    { done: prepared, label: "Prepare the voice", action: "prepare", hint: "Write a brief from your sources" },
+    { done: hasTraffic, label: "Try the playground", hint: "Ask it something a customer would" },
+    { done: live, label: "Install on the website", href: "install", hint: "Copy the one-line snippet" },
+  ];
 
   return (
     <div className="space-y-8">
@@ -73,6 +92,46 @@ function SiteOverview() {
             </Link>
           </Button>
         </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-4">
+        {steps.map((step, i) => (
+          <div
+            key={step.label}
+            className="rounded-2xl border border-border bg-surface p-4"
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className={
+                  step.done
+                    ? "grid size-6 place-items-center rounded-full bg-primary text-primary-fg"
+                    : "grid size-6 place-items-center rounded-full border border-border text-xs text-muted"
+                }
+              >
+                {step.done ? <Check className="size-3.5" /> : i + 1}
+              </span>
+              <p className="text-sm font-medium">{step.label}</p>
+            </div>
+            <p className="mt-2 text-xs text-muted">{step.hint}</p>
+            {"href" in step && step.href === "knowledge" ? (
+              <Link to="/app/$siteId/knowledge" params={{ siteId }} className="mt-2 inline-block text-xs text-primary">
+                Open
+              </Link>
+            ) : step.href === "install" ? (
+              <Link to="/app/$siteId/install" params={{ siteId }} className="mt-2 inline-block text-xs text-primary">
+                Open
+              </Link>
+            ) : step.action === "prepare" ? (
+              <button
+                type="button"
+                className="mt-2 text-xs text-primary"
+                onClick={() => prepare.mutate()}
+              >
+                Run
+              </button>
+            ) : null}
+          </div>
+        ))}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">

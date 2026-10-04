@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { getConversationMessages, listConversations } from "@/lib/server/chat";
 import { formatDistanceToNow } from "date-fns";
 
@@ -14,11 +15,24 @@ function InboxPage() {
     queryFn: () => listConversations({ data: siteId }),
   });
   const [open, setOpen] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [filter, setFilter] = useState<"all" | "human" | "frustrated">("all");
   const thread = useQuery({
     queryKey: ["thread", siteId, open],
     queryFn: () => getConversationMessages({ data: { siteId, conversationId: open! } }),
     enabled: Boolean(open),
   });
+
+  const rows = useMemo(() => {
+    const all = list.data ?? [];
+    return all.filter((c) => {
+      if (filter === "human" && !c.needsHuman) return false;
+      if (filter === "frustrated" && c.lastSentiment !== "frustrated") return false;
+      if (!q.trim()) return true;
+      const hay = `${c.preview ?? ""} ${c.lastTopic ?? ""} ${c.visitorLabel ?? ""}`.toLowerCase();
+      return hay.includes(q.trim().toLowerCase());
+    });
+  }, [list.data, filter, q]);
 
   return (
     <div className="space-y-6">
@@ -26,9 +40,31 @@ function InboxPage() {
         <h1 className="font-display text-4xl tracking-tight">Inbox</h1>
         <p className="mt-2 text-muted">Every visitor thread from the widget and your playground.</p>
       </div>
+      <div className="flex flex-wrap gap-2">
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search questions…"
+          className="max-w-xs"
+        />
+        {(["all", "human", "frustrated"] as const).map((key) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setFilter(key)}
+            className={
+              filter === key
+                ? "rounded-full bg-primary px-3 py-2 text-xs text-primary-fg"
+                : "rounded-full border border-border px-3 py-2 text-xs text-muted"
+            }
+          >
+            {key === "all" ? "All" : key === "human" ? "Needs a human" : "Frustrated"}
+          </button>
+        ))}
+      </div>
       <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr]">
         <div className="space-y-2">
-          {(list.data ?? []).map((c) => (
+          {rows.map((c) => (
             <button
               key={c.id}
               type="button"
@@ -44,8 +80,8 @@ function InboxPage() {
               </p>
             </button>
           ))}
-          {list.data?.length === 0 ? (
-            <p className="text-sm text-muted">No conversations yet. Use the playground on Overview, or install the widget.</p>
+          {rows.length === 0 ? (
+            <p className="text-sm text-muted">No conversations match. Use the playground on Overview, or install the widget.</p>
           ) : null}
         </div>
         <div className="min-h-80 rounded-3xl border border-border bg-surface p-5">

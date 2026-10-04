@@ -78,3 +78,62 @@ export async function deleteDocForSite(userId: string, data: { siteId: string; d
   `;
   return { ok: true as const };
 }
+
+export async function generateFaqsForSite(
+  userId: string,
+  siteId: string,
+): Promise<{ added: number; titles: string[] }> {
+  await requireSite(userId, siteId);
+  const sql = await getSql();
+  const docs = await sql<{ title: string; content: string }>`
+    select title, content from knowledge_docs
+     where site_id = ${siteId} and user_id = ${userId}
+     order by created_at desc
+     limit 8
+  `;
+  if (docs.length === 0) throw new Error("Add a website or notes first so FAQs have something to draw from.");
+
+  const { grokChat, parseModelJson } = await import("./ai");
+  const corpus = docs
+    .map((d) => `## ${d.title}\n${d.content.slice(0, 2200)}`)
+    .join("\n\n")
+    .slice(0, 12_000);
+
+  const result = await grokChat({
+    maxTokens: 700,
+    temperature: 0.2,
+    messages: [
+      {
+        role: "system",
+        content:
+          'Extract customer FAQs from the source. Return JSON only: {"faqs":[{"q":string,"a":string}]}. 5-8 items. Answers must use only facts in the source. Short, specific, no marketing.',
+      },
+      { role: "user", content: corpus },
+    ],
+  });
+
+  const parsed = result.ok ? parseModelJson<{ faqs?: { q?: string; a?: string }[] }>(result.text) : null;
+  const faqs = (parsed?.faqs ?? []).filter((f) => f.q && f.a);
+  if (faqs.length === 0) {
+    throw new Error(
+      result.ok
+        ? "Could not extract FAQs from that material. Try adding a policy page first."
+        : "AI is not available here — paste FAQs as notes instead.",
+    );
+  }
+
+  const titles: string[] = [];
+  for (const faq of faqs.slice(0, 8)) {
+    const title = faq.q!.trim();
+    const content = `Q: ${title}\nA: ${faq.a!.trim()}`;
+    const id = nid("doc");
+    await sql`
+      insert into knowledge_docs (id, site_id, user_id, kind, title, content, char_count)
+      values (${id}, ${siteId}, ${userId}, ${"faq"}, ${title}, ${content}, ${content.length})
+    `;
+    await indexDocument(sql, { siteId, docId: id, content });
+    titles.push(title);
+  }
+  await sql`update sites set updated_at = now() where id = ${siteId} and user_id = ${userId}`;
+  return { added: titles.length, titles };
+}

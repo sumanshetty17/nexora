@@ -10,12 +10,14 @@ export function ChatPanel({
   welcome,
   brandColor,
   compact = false,
+  suggestions,
   onSend,
 }: {
   name: string;
   welcome: string;
   brandColor?: string;
   compact?: boolean;
+  suggestions?: string[];
   onSend: (message: string, conversationId?: string) => Promise<ChatTurnResult>;
 }) {
   const [conversationId, setConversationId] = useState<string>();
@@ -27,9 +29,12 @@ export function ChatPanel({
   const accent = brandColor || "#21564A";
 
   const empty = messages.length === 0;
-  const suggestions = useMemo(
-    () => ["What are your hours?", "How does shipping work?", "What is the return policy?"],
-    [],
+  const chips = useMemo(
+    () =>
+      suggestions && suggestions.length > 0
+        ? suggestions.slice(0, 4)
+        : ["What are your hours?", "How does shipping work?", "What is the return policy?"],
+    [suggestions],
   );
 
   async function send(text: string) {
@@ -76,7 +81,7 @@ export function ChatPanel({
           <div className="space-y-3">
             <p className="text-sm leading-relaxed text-ink">{welcome}</p>
             <div className="flex flex-wrap gap-2">
-              {suggestions.map((s) => (
+              {chips.map((s) => (
                 <button
                   key={s}
                   type="button"

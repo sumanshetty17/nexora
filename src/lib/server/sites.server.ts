@@ -72,6 +72,7 @@ export async function updateSiteForUser(
     tone?: string;
     welcomeMessage?: string;
     brandColor?: string;
+    allowedOrigins?: string;
     status?: "draft" | "live";
     emailAssistantEnabled?: boolean;
   },
@@ -85,6 +86,7 @@ export async function updateSiteForUser(
   const tone = data.tone?.trim() || current.tone;
   const welcome = data.welcomeMessage?.trim() || current.welcomeMessage;
   const color = data.brandColor?.trim() || current.brandColor;
+  const origins = data.allowedOrigins === undefined ? current.allowedOrigins : data.allowedOrigins.trim() || "*";
   const status = data.status ?? current.status;
   const emailOn =
     data.emailAssistantEnabled === undefined ? current.emailAssistantEnabled : data.emailAssistantEnabled;
@@ -97,6 +99,7 @@ export async function updateSiteForUser(
       tone = ${tone},
       welcome_message = ${welcome},
       brand_color = ${color},
+      allowed_origins = ${origins},
       status = ${status},
       email_assistant_enabled = ${emailOn},
       updated_at = now()

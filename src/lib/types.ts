@@ -93,6 +93,7 @@ export type WidgetConfig = {
   welcomeMessage: string;
   brandColor: string;
   status: SiteStatus;
+  suggestions: string[];
 };
 
 export type InsightBundle = {

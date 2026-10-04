@@ -3,23 +3,54 @@ import { nid } from "@/lib/utils";
 
 const STOPWORDS = new Set([
   "about",
+  "after",
+  "also",
+  "been",
+  "could",
   "does",
+  "from",
   "have",
-  "how",
-  "the",
+  "into",
+  "just",
+  "like",
+  "more",
+  "only",
+  "over",
+  "some",
+  "than",
+  "that",
+  "them",
+  "then",
+  "this",
   "what",
   "when",
   "where",
   "which",
-  "your",
+  "will",
   "with",
-  "from",
-  "that",
-  "this",
-  "please",
-  "could",
   "would",
+  "your",
+  "please",
+  "there",
+  "their",
+  "they",
+  "here",
+  "how",
+  "the",
+  "and",
+  "for",
+  "are",
+  "can",
+  "you",
 ]);
+
+export function queryTerms(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 2 && !STOPWORDS.has(t))
+    .slice(0, 8);
+}
 
 export function chunkText(text: string, size = 900, overlap = 120): string[] {
   const clean = text.replaceAll("\r", "").replace(/\n{3,}/g, "\n\n").trim();
@@ -76,27 +107,43 @@ export async function retrieveChunks(
   const q = query.trim();
   if (!q) return [];
 
-  const fts = await sql.query<RetrievedChunk & { rank: number }>(
-    `select c.content, d.title, d.source_url as "sourceUrl",
-            ts_rank_cd(c.tsv, plainto_tsquery('english', $2)) as rank
-       from knowledge_chunks c
-       join knowledge_docs d on d.id = c.doc_id
-      where c.site_id = $1
-        and c.tsv @@ plainto_tsquery('english', $2)
-      order by rank desc
-      limit $3`,
-    [siteId, q, limit],
-  );
+  const terms = queryTerms(q);
+  const orQuery = terms.join(" | ") || q;
+
+  let fts: Array<RetrievedChunk & { rank: number }> = [];
+  try {
+    fts = await sql.query<RetrievedChunk & { rank: number }>(
+      `select c.content, d.title, d.source_url as "sourceUrl",
+              ts_rank_cd(c.tsv, to_tsquery('english', $2)) as rank
+         from knowledge_chunks c
+         join knowledge_docs d on d.id = c.doc_id
+        where c.site_id = $1
+          and c.tsv @@ to_tsquery('english', $2)
+        order by rank desc
+        limit $3`,
+      [siteId, sanitizeTsQuery(orQuery), limit],
+    );
+  } catch {
+    try {
+      fts = await sql.query<RetrievedChunk & { rank: number }>(
+        `select c.content, d.title, d.source_url as "sourceUrl",
+                ts_rank_cd(c.tsv, plainto_tsquery('english', $2)) as rank
+           from knowledge_chunks c
+           join knowledge_docs d on d.id = c.doc_id
+          where c.site_id = $1
+            and c.tsv @@ plainto_tsquery('english', $2)
+          order by rank desc
+          limit $3`,
+        [siteId, terms.join(" ") || q, limit],
+      );
+    } catch {
+      fts = [];
+    }
+  }
 
   if (fts.length >= 1) {
     return fts.map(({ content, title, sourceUrl }) => ({ content, title, sourceUrl }));
   }
-
-  const terms = q
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((t) => t.length > 3 && !STOPWORDS.has(t))
-    .slice(0, 6);
 
   if (terms.length === 0) {
     const fallback = await sql.query<RetrievedChunk>(
@@ -111,16 +158,26 @@ export async function retrieveChunks(
     return fallback;
   }
 
-  const like = `%${terms[0]}%`;
+  const clauses = terms.map((_, i) => `lower(c.content) like $${i + 2}`).join(" or ");
+  const params: unknown[] = [siteId, ...terms.map((t) => `%${t}%`), limit];
   const rows = await sql.query<RetrievedChunk>(
     `select c.content, d.title, d.source_url as "sourceUrl"
        from knowledge_chunks c
        join knowledge_docs d on d.id = c.doc_id
       where c.site_id = $1
-        and (lower(c.content) like $2 or lower(d.title) like $2)
+        and (${clauses})
       order by length(c.content) asc
-      limit $3`,
-    [siteId, like, limit],
+      limit $${terms.length + 2}`,
+    params,
   );
   return rows;
+}
+
+function sanitizeTsQuery(raw: string): string {
+  const parts = raw
+    .split("|")
+    .map((p) => p.trim().replace(/[^a-z0-9]+/gi, ""))
+    .filter((p) => p.length > 1);
+  if (!parts.length) return "assistant";
+  return parts.map((p) => `${p}:*`).join(" | ");
 }

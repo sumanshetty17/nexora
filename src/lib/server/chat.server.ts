@@ -232,7 +232,39 @@ export async function getWidgetConfigForPublicId(publicId: string): Promise<Widg
     welcomeMessage: site.welcome_message,
     brandColor: site.brand_color,
     status: site.status === "live" ? "live" : "draft",
+    suggestions: await suggestionsForSite(site.id),
   };
+}
+
+async function suggestionsForSite(siteId: string): Promise<string[]> {
+  const sql = await getSql();
+  const faqs = await sql<{ title: string }>`
+    select title from knowledge_docs
+     where site_id = ${siteId} and kind = 'faq'
+     order by created_at desc
+     limit 6
+  `;
+  const fromFaqs = faqs.map((f) => f.title.trim()).filter((t) => t.endsWith("?") || t.length > 8);
+  if (fromFaqs.length >= 3) return fromFaqs.slice(0, 3);
+
+  const titles = await sql<{ title: string; content: string }>`
+    select title, content from knowledge_docs where site_id = ${siteId} order by created_at desc limit 8
+  `;
+  const blob = titles.map((t) => `${t.title} ${t.content}`).join(" ").toLowerCase();
+  const unique: string[] = [];
+  const maybe = (q: string, test: boolean) => {
+    if (test && !unique.includes(q)) unique.push(q);
+  };
+  maybe("How does shipping work?", /ship|deliver|freight|postage/.test(blob));
+  maybe("What is the return policy?", /return|refund|warranty/.test(blob));
+  maybe("What are your hours?", /hour|open|showroom|visit/.test(blob));
+  maybe("How does pricing work?", /price|cost|how much/.test(blob));
+  maybe("Do you take custom orders?", /custom|made to order/.test(blob));
+  for (const fallback of ["What are your hours?", "How does shipping work?", "What is the return policy?"]) {
+    if (unique.length >= 3) break;
+    if (!unique.includes(fallback)) unique.push(fallback);
+  }
+  return unique.slice(0, 3);
 }
 
 export async function widgetTurn(input: {

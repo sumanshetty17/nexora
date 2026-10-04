@@ -14,7 +14,7 @@
 
   var frameWrap = document.createElement("div");
   frameWrap.style.cssText =
-    "display:none;width:min(380px,calc(100vw - 24px));height:min(640px,calc(100vh - 96px));overflow:hidden;border-radius:22px;box-shadow:0 24px 60px rgba(20,18,16,.28);border:1px solid rgba(20,18,16,.12);background:#f7f5ef;";
+    "display:none;position:relative;width:min(380px,calc(100vw - 24px));height:min(640px,calc(100vh - 96px));overflow:hidden;border-radius:22px;box-shadow:0 24px 60px rgba(20,18,16,.28);border:1px solid rgba(20,18,16,.12);background:#f7f5ef;";
 
   var iframe = document.createElement("iframe");
   iframe.src = iframeSrc;
@@ -33,14 +33,29 @@
   btn.innerHTML =
     '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12a8 8 0 1 1 3.2 6.4L4 20l1.1-3.1A7.96 7.96 0 0 1 4 12z"/></svg>';
 
+  var closeIcon =
+    '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  var chatIcon = btn.innerHTML;
+
   var open = false;
-  btn.addEventListener("click", function () {
-    open = !open;
+  function setOpen(next) {
+    open = next;
     frameWrap.style.display = open ? "block" : "none";
     btn.setAttribute("aria-label", open ? "Close chat" : "Open chat");
+    btn.innerHTML = open ? closeIcon : chatIcon;
+  }
+
+  btn.addEventListener("click", function () {
+    setOpen(!open);
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && open) setOpen(false);
   });
 
   root.appendChild(frameWrap);
   root.appendChild(btn);
   document.body.appendChild(root);
+
+  if (script.getAttribute("data-open") === "1") setOpen(true);
 })();

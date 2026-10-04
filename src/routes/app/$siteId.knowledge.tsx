@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label, Textarea } from "@/components/ui/input";
-import { addKnowledge, deleteDoc, ingestWebsite, listDocs } from "@/lib/server/knowledge";
+import { addKnowledge, deleteDoc, generateFaqs, ingestWebsite, listDocs } from "@/lib/server/knowledge";
 import { getSite } from "@/lib/server/sites";
 
 export const Route = createFileRoute("/app/$siteId/knowledge")({ component: KnowledgePage });
@@ -15,9 +15,15 @@ function KnowledgePage() {
   const qc = useQueryClient();
   const site = useQuery({ queryKey: ["site", siteId], queryFn: () => getSite({ data: siteId }) });
   const docs = useQuery({ queryKey: ["docs", siteId], queryFn: () => listDocs({ data: siteId }) });
-  const [url, setUrl] = useState(site.data?.websiteUrl ?? "");
+  const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+
+  useEffect(() => {
+    if (site.data?.websiteUrl && !url) setUrl(site.data.websiteUrl);
+  }, [site.data?.websiteUrl, url]);
 
   const crawl = useMutation({
     mutationFn: () => ingestWebsite({ data: { siteId, url } }),
@@ -38,6 +44,34 @@ function KnowledgePage() {
       setContent("");
       await qc.invalidateQueries({ queryKey: ["docs", siteId] });
       toast.success("Indexed");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const addFaq = useMutation({
+    mutationFn: () =>
+      addKnowledge({
+        data: {
+          siteId,
+          kind: "faq",
+          title: question.trim(),
+          content: `Q: ${question.trim()}\nA: ${answer.trim()}`,
+        },
+      }),
+    onSuccess: async () => {
+      setQuestion("");
+      setAnswer("");
+      await qc.invalidateQueries({ queryKey: ["docs", siteId] });
+      toast.success("FAQ indexed");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const faqs = useMutation({
+    mutationFn: () => generateFaqs({ data: siteId }),
+    onSuccess: async (r) => {
+      await qc.invalidateQueries({ queryKey: ["docs", siteId] });
+      toast.success(`Added ${r.added} FAQs`);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -66,11 +100,16 @@ function KnowledgePage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="font-display text-4xl tracking-tight">Knowledge</h1>
-        <p className="mt-2 text-muted">
-          The assistant only answers from what you put here. {chars.toLocaleString()} characters indexed.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-display text-4xl tracking-tight">Knowledge</h1>
+          <p className="mt-2 text-muted">
+            The assistant only answers from what you put here. {chars.toLocaleString()} characters indexed.
+          </p>
+        </div>
+        <Button variant="secondary" onClick={() => faqs.mutate()} disabled={faqs.isPending}>
+          {faqs.isPending ? "Extracting…" : "Extract FAQs from sources"}
+        </Button>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -127,6 +166,39 @@ function KnowledgePage() {
               </label>
             </div>
           </div>
+        </Card>
+        <Card className="lg:col-span-2">
+          <h2 className="font-display text-2xl tracking-tight">Add a FAQ</h2>
+          <p className="mt-1 text-sm text-muted">These become suggested questions in the widget.</p>
+          <form
+            className="mt-4 grid gap-3 sm:grid-cols-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              addFaq.mutate();
+            }}
+          >
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>Question</Label>
+              <Input
+                required
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="Do you offer white-glove delivery?"
+              />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>Answer</Label>
+              <Textarea
+                required
+                value={answer}
+                onChange={(e) => setAnswer(e.target.value)}
+                placeholder="Yes, within 40 miles of Portland for a quoted fee…"
+              />
+            </div>
+            <Button type="submit" disabled={addFaq.isPending}>
+              {addFaq.isPending ? "Saving…" : "Index FAQ"}
+            </Button>
+          </form>
         </Card>
       </div>
 

@@ -36,6 +36,7 @@ function WidgetPage() {
         name={cfg.name}
         welcome={cfg.welcomeMessage}
         brandColor={cfg.brandColor}
+        suggestions={cfg.suggestions}
         onSend={(message, conversationId) =>
           widgetChat({ data: { publicId, message, conversationId } })
         }

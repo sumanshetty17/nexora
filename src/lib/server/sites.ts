@@ -45,6 +45,7 @@ export const updateSite = createServerFn({ method: "POST" })
       tone?: string;
       welcomeMessage?: string;
       brandColor?: string;
+      allowedOrigins?: string;
       status?: "draft" | "live";
       emailAssistantEnabled?: boolean;
     }) => input,

@@ -6,6 +6,32 @@ import { getUsage } from "@/lib/server/sites";
 
 export const Route = createFileRoute("/app/settings")({ component: SettingsPage });
 
+const INTENDED = {
+  sites: 3,
+  conversations30d: 5000,
+  emails30d: 500,
+  knowledgeChars: 500_000,
+};
+
+function Meter({ label, value, cap, suffix }: { label: string; value: number; cap: number; suffix?: string }) {
+  const pct = Math.min(100, Math.round((value / cap) * 100));
+  return (
+    <div>
+      <div className="flex items-baseline justify-between text-sm">
+        <span>{label}</span>
+        <span className="tabular-nums text-muted">
+          {value.toLocaleString()}
+          {suffix} / {cap.toLocaleString()}
+          {suffix}
+        </span>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-ink/10">
+        <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
 function SettingsPage() {
   const user = useCurrentUser();
   const usage = useQuery({ queryKey: ["usage"], queryFn: () => getUsage() });
@@ -23,16 +49,20 @@ function SettingsPage() {
         <p className="text-xs uppercase tracking-wider text-muted">Plan</p>
         <h2 className="mt-2 font-display text-2xl">Launch preview — everything unlocked</h2>
         <p className="mt-2 text-sm text-muted leading-relaxed">
-          Intended commercial limits later: conversations per month, number of
-          websites, knowledge-base size, and an extra fee for the email assistant.
-          None of that is billed yet.
+          Caps below are the intended commercial shape — conversations, sites, and
+          knowledge size — plus email as an add-on. None of that is billed yet.
         </p>
-        <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
-          <div>Sites in use: {u?.sites ?? 0}</div>
-          <div>Conversations (30d): {u?.conversations30d ?? 0}</div>
-          <div>Email replies (30d): {u?.emails30d ?? 0}</div>
-          <div>Knowledge: {u?.knowledgeChars ?? 0} characters</div>
-        </dl>
+        <div className="mt-6 space-y-4">
+          <Meter label="Assistants" value={u?.sites ?? 0} cap={INTENDED.sites} />
+          <Meter label="Conversations · 30d" value={u?.conversations30d ?? 0} cap={INTENDED.conversations30d} />
+          <Meter label="Email replies · 30d" value={u?.emails30d ?? 0} cap={INTENDED.emails30d} />
+          <Meter
+            label="Knowledge"
+            value={Math.round((u?.knowledgeChars ?? 0) / 1000)}
+            cap={Math.round(INTENDED.knowledgeChars / 1000)}
+            suffix="k chars"
+          />
+        </div>
       </Card>
     </div>
   );
