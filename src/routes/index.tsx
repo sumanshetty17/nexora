@@ -10,7 +10,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 export const Route = createFileRoute("/")({ component: Home });
 
 function Home() {
-  useQuery({
+  const widget = useQuery({
     queryKey: ["widget", DEMO_PUBLIC_ID],
     queryFn: () => getWidgetConfig({ data: DEMO_PUBLIC_ID }),
   });
@@ -49,6 +49,7 @@ function Home() {
             <ChatPanel
               name="Harbor & Oak"
               welcome="Welcome to Harbor & Oak — looking for a table, a finish, or a ship date?"
+              suggestions={widget.data?.suggestions}
               onSend={(message, conversationId) =>
                 widgetChat({ data: { publicId: DEMO_PUBLIC_ID, message, conversationId } })
               }

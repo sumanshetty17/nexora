@@ -20,13 +20,13 @@ export function isSafeHttpUrl(raw: string): URL | null {
 function decodeEntities(text: string): string {
   return text
     .replace(/&nbsp;/gi, " ")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
+    .replace(/</gi, "<")
+    .replace(/>/gi, ">")
+    .replace(/"/gi, '"')
     .replace(/&#39;/g, "'")
-    .replace(/&apos;/gi, "'")
+    .replace(/'/gi, "'")
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-    .replace(/&amp;/gi, "&");
+    .replace(/&/gi, "&");
 }
 
 export function htmlToText(html: string): { title: string; description: string; text: string; links: string[] } {
@@ -81,43 +81,58 @@ export type CrawledPage = {
   content: string;
 };
 
+function pageFromHtml(href: string, html: string): CrawledPage | null {
+  const parsed = htmlToText(html);
+  const content = [parsed.title, parsed.description, parsed.text].filter(Boolean).join("\n\n");
+  if (content.replace(/\s/g, "").length < 40) return null;
+  return {
+    url: href,
+    title: parsed.title || href,
+    content: content.slice(0, 24_000),
+  };
+}
+
+function sameHostLinks(origin: URL, href: string, rawLinks: string[], seen: Set<string>, budget: number): string[] {
+  const out: string[] = [];
+  for (const raw of rawLinks) {
+    if (out.length >= budget) break;
+    try {
+      const next = new URL(raw, href);
+      if (next.protocol !== "http:" && next.protocol !== "https:") continue;
+      if (next.hostname !== origin.hostname) continue;
+      next.hash = "";
+      if (/\.(pdf|jpg|jpeg|png|gif|svg|zip|mp4|webp|css|js)$/i.test(next.pathname)) continue;
+      if (seen.has(next.href)) continue;
+      seen.add(next.href);
+      out.push(next.href);
+    } catch {
+      /* ignore bad href */
+    }
+  }
+  return out;
+}
+
 export async function crawlSite(startUrl: string): Promise<CrawledPage[]> {
   const origin = isSafeHttpUrl(startUrl);
   if (!origin) throw new Error("Enter a public http(s) website URL.");
 
-  const seen = new Set<string>();
-  const queue: string[] = [origin.href];
+  const seen = new Set<string>([origin.href]);
+  const homeHtml = await fetchPage(origin.href);
+  if (!homeHtml) throw new Error("Could not read that site. Try pasting key pages as text.");
+  const homeParsed = htmlToText(homeHtml);
   const pages: CrawledPage[] = [];
+  const home = pageFromHtml(origin.href, homeHtml);
+  if (home) pages.push(home);
 
-  while (queue.length && pages.length < MAX_PAGES) {
-    const href = queue.shift();
-    if (!href || seen.has(href)) continue;
-    seen.add(href);
-    const html = await fetchPage(href);
-    if (!html) continue;
-    const parsed = htmlToText(html);
-    const content = [parsed.title, parsed.description, parsed.text].filter(Boolean).join("\n\n");
-    if (content.replace(/\s/g, "").length < 40) continue;
-    pages.push({
-      url: href,
-      title: parsed.title || href,
-      content: content.slice(0, 24_000),
-    });
-
-    for (const raw of parsed.links) {
-      if (pages.length + queue.length >= MAX_PAGES) break;
-      try {
-        const next = new URL(raw, href);
-        if (next.protocol !== "http:" && next.protocol !== "https:") continue;
-        if (next.hostname !== origin.hostname) continue;
-        next.hash = "";
-        if (/\.(pdf|jpg|png|gif|svg|zip|mp4|webp)$/i.test(next.pathname)) continue;
-        if (!seen.has(next.href)) queue.push(next.href);
-      } catch {
-        /* ignore bad href */
-      }
-    }
+  const follow = sameHostLinks(origin, origin.href, homeParsed.links, seen, MAX_PAGES - 1);
+  const extras = await Promise.all(
+    follow.map(async (href) => {
+      const html = await fetchPage(href);
+      return html ? pageFromHtml(href, html) : null;
+    }),
+  );
+  for (const page of extras) {
+    if (page) pages.push(page);
   }
-
   return pages;
 }

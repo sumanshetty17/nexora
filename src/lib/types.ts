@@ -64,6 +64,12 @@ export type TopicStat = {
   lastSeenAt: string;
 };
 
+export type InsightAction = {
+  topic: string;
+  title: string;
+  detail: string;
+};
+
 export type EmailItem = {
   id: string;
   siteId: string;
@@ -103,6 +109,7 @@ export type InsightBundle = {
   totalConversations: number;
   needsHuman: number;
   recommendation: string | null;
+  actions: InsightAction[];
 };
 
 export type ChatTurnResult = {

@@ -181,6 +181,13 @@ function SiteOverview() {
             name={site.name}
             welcome={site.welcomeMessage}
             brandColor={site.brandColor}
+            suggestions={
+              (docs.data ?? [])
+                .filter((d) => d.kind === "faq")
+                .map((d) => d.title)
+                .filter((t) => t.endsWith("?") || t.length > 8)
+                .slice(0, 4)
+            }
             onSend={(message, conversationId) =>
               playgroundChat({ data: { siteId, message, conversationId } })
             }

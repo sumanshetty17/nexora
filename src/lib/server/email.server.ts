@@ -133,6 +133,28 @@ Otherwise draft a complete sendable reply. No placeholders like [Name] if the se
   return mapEmail(updated[0]!);
 }
 
+export async function processInboxForSite(
+  userId: string,
+  siteId: string,
+): Promise<{ processed: number; escalated: number }> {
+  await requireSite(userId, siteId);
+  const sql = await getSql();
+  const rows = await sql<{ id: string }>`
+    select id from emails
+     where site_id = ${siteId} and user_id = ${userId} and status = 'new'
+     order by received_at asc
+     limit 6
+  `;
+  let processed = 0;
+  let escalated = 0;
+  for (const row of rows) {
+    const item = await processEmailForSite(userId, { siteId, emailId: row.id });
+    processed += 1;
+    if (item.status === "escalated" || item.severity === "urgent") escalated += 1;
+  }
+  return { processed, escalated };
+}
+
 export async function sendEmailReplyForSite(
   userId: string,
   data: { siteId: string; emailId: string; body: string },

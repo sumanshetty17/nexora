@@ -36,6 +36,14 @@ export const processEmail = createServerFn({ method: "POST" })
     return processEmailForSite(context.userId, data);
   });
 
+export const processInbox = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((siteId: string) => siteId)
+  .handler(async ({ context, data: siteId }): Promise<{ processed: number; escalated: number }> => {
+    const { processInboxForSite } = await import("./email.server");
+    return processInboxForSite(context.userId, siteId);
+  });
+
 export const sendEmailReply = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { siteId: string; emailId: string; body: string }) => input)

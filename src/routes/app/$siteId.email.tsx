@@ -12,6 +12,7 @@ import {
   listEmails,
   loadSampleEmails,
   processEmail,
+  processInbox,
   sendEmailReply,
 } from "@/lib/server/email";
 import { formatDistanceToNow } from "date-fns";
@@ -65,6 +66,19 @@ function EmailPage() {
     },
   });
 
+  const inbox = useMutation({
+    mutationFn: () => processInbox({ data: siteId }),
+    onSuccess: async (r) => {
+      await refresh();
+      toast.success(
+        r.processed
+          ? `Read ${r.processed} — ${r.escalated} held for you`
+          : "Nothing new to read",
+      );
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const process = useMutation({
     mutationFn: (emailId: string) => processEmail({ data: { siteId, emailId } }),
     onSuccess: async (row) => {
@@ -96,12 +110,17 @@ function EmailPage() {
           <h1 className="font-display text-4xl tracking-tight">Email assistant</h1>
           <p className="mt-2 max-w-xl text-muted">
             Paste mail from customers. Routine messages get a human-sounding draft.
-            Anything serious is held for you.
+            Chargebacks, legal, and sharp tone are held for you.
           </p>
         </div>
-        <Button variant="secondary" onClick={() => samples.mutate()} disabled={samples.isPending}>
-          Load sample inbox
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => samples.mutate()} disabled={samples.isPending}>
+            Load sample inbox
+          </Button>
+          <Button onClick={() => inbox.mutate()} disabled={inbox.isPending}>
+            {inbox.isPending ? "Reading inbox…" : "Read all new mail"}
+          </Button>
+        </div>
       </div>
 
       <Card>

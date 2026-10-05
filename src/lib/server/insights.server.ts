@@ -1,10 +1,27 @@
 import { getSql } from "@/lib/db";
 import { iso } from "@/lib/utils";
-import type { InsightBundle } from "@/lib/types";
+import type { InsightAction, InsightBundle } from "@/lib/types";
 import { grokChat } from "./ai";
 import { mapTopic } from "./serialize";
 import { requireSite } from "./sites.server";
 import { insertSampleTraffic } from "./demo";
+
+function actionsFromTopics(
+  topics: { topic: string; hitCount: number; frustratedCount: number; unresolvedCount: number }[],
+): InsightAction[] {
+  return topics.slice(0, 4).map((t) => {
+    const stuck = t.frustratedCount > 0 || t.unresolvedCount > 0;
+    return {
+      topic: t.topic,
+      title: stuck
+        ? `${t.hitCount} customers ran into “${t.topic}” — ${t.frustratedCount} sounded stuck`
+        : `${t.hitCount} customers asked about “${t.topic}”`,
+      detail: t.unresolvedCount > 0
+        ? `Put a plain-language answer on the site and in knowledge. ${t.unresolvedCount} chats still needed a human.`
+        : `Move this answer higher on the page so people find it before they open chat.`,
+    };
+  });
+}
 
 export async function insightsForSite(userId: string, siteId: string): Promise<InsightBundle> {
   await requireSite(userId, siteId);
@@ -36,8 +53,9 @@ export async function insightsForSite(userId: string, siteId: string): Promise<I
            count(*) filter (where needs_human)::int as human
       from conversations where site_id = ${siteId}
   `;
+  const mapped = topics.map(mapTopic);
   return {
-    topics: topics.map(mapTopic),
+    topics: mapped,
     sentiment: sentiment.map((s) => ({ label: s.label, count: Number(s.count) })),
     unresolved: unresolved.map((u) => ({
       id: u.id,
@@ -48,6 +66,7 @@ export async function insightsForSite(userId: string, siteId: string): Promise<I
     totalConversations: totals[0]?.n ?? 0,
     needsHuman: totals[0]?.human ?? 0,
     recommendation: null,
+    actions: actionsFromTopics(mapped),
   };
 }
 

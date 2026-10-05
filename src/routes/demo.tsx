@@ -1,8 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { ChatPanel } from "@/components/chat-panel";
-import { widgetChat } from "@/lib/server/chat";
+import { getWidgetConfig, widgetChat } from "@/lib/server/chat";
 import { DEMO_PUBLIC_ID } from "@/lib/server/demo-content";
 
 export const Route = createFileRoute("/demo")({ component: DemoStore });
@@ -15,6 +16,11 @@ const pieces = [
 ];
 
 function DemoStore() {
+  const widget = useQuery({
+    queryKey: ["widget", DEMO_PUBLIC_ID],
+    queryFn: () => getWidgetConfig({ data: DEMO_PUBLIC_ID }),
+  });
+
   return (
     <div className="min-h-screen bg-[#f3efe6] text-[#1c1915]">
       <header className="border-b border-[#ddd4c4]">
@@ -66,6 +72,7 @@ function DemoStore() {
           compact
           name="Harbor & Oak"
           welcome="Welcome to Harbor & Oak — looking for a table, a finish, or a ship date?"
+          suggestions={widget.data?.suggestions}
           onSend={(message, conversationId) =>
             widgetChat({ data: { publicId: DEMO_PUBLIC_ID, message, conversationId } })
           }
@@ -76,6 +83,7 @@ function DemoStore() {
           <ChatPanel
             name="Harbor & Oak"
             welcome="Welcome to Harbor & Oak — looking for a table, a finish, or a ship date?"
+            suggestions={widget.data?.suggestions}
             onSend={(message, conversationId) =>
               widgetChat({ data: { publicId: DEMO_PUBLIC_ID, message, conversationId } })
             }

@@ -78,6 +78,18 @@ function InsightsPage() {
         </ResponsiveContainer>
       </Card>
 
+      {data?.actions && data.actions.length > 0 ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          {data.actions.map((action) => (
+            <Card key={action.topic}>
+              <p className="text-xs uppercase tracking-wider text-muted">{action.topic}</p>
+              <p className="mt-2 font-display text-xl tracking-tight">{action.title}</p>
+              <p className="mt-2 text-sm leading-relaxed text-muted">{action.detail}</p>
+            </Card>
+          ))}
+        </div>
+      ) : null}
+
       {rec.data ? (
         <Card>
           <p className="text-xs uppercase tracking-wider text-muted">What to change in the business</p>

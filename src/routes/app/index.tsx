@@ -5,7 +5,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label, Textarea } from "@/components/ui/input";
-import { cloneHarborDemo, createSite, getUsage, listSites } from "@/lib/server/sites";
+import { cloneHarborDemo, createSite, getUsage, listSites, prepareAssistant } from "@/lib/server/sites";
+import { ingestWebsite } from "@/lib/server/knowledge";
 
 export const Route = createFileRoute("/app/")({ component: AppHome });
 
@@ -19,14 +20,34 @@ function AppHome() {
   const [description, setDescription] = useState("");
 
   const create = useMutation({
-    mutationFn: () =>
-      createSite({
+    mutationFn: async () => {
+      const site = await createSite({
         data: { name, websiteUrl: url, description, industry: "general" },
-      }),
-    onSuccess: async (site) => {
+      });
+      let imported = 0;
+      if (url.trim()) {
+        try {
+          const r = await ingestWebsite({ data: { siteId: site.id, url: url.trim() } });
+          imported = r.imported;
+        } catch {
+          /* crawl is optional — user can paste pages next */
+        }
+      }
+      try {
+        await prepareAssistant({ data: site.id });
+      } catch {
+        /* brief can be written from Overview */
+      }
+      return { site, imported };
+    },
+    onSuccess: async ({ site, imported }) => {
       await qc.invalidateQueries({ queryKey: ["sites"] });
-      toast.success("Assistant created");
-      nav({ to: "/app/$siteId/knowledge", params: { siteId: site.id } });
+      toast.success(
+        imported
+          ? `Trained on ${imported} page${imported === 1 ? "" : "s"}`
+          : "Assistant created — add knowledge next",
+      );
+      nav({ to: "/app/$siteId", params: { siteId: site.id } });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -103,7 +124,11 @@ function AppHome() {
           </div>
           <div className="flex flex-wrap gap-3">
             <Button type="submit" disabled={create.isPending}>
-              {create.isPending ? "Creating…" : "Create assistant"}
+              {create.isPending
+                ? url.trim()
+                  ? "Reading your site…"
+                  : "Creating…"
+                : "Create and train"}
             </Button>
             <Button type="button" variant="secondary" disabled={clone.isPending} onClick={() => clone.mutate()}>
               {clone.isPending ? "Copying…" : "Copy Harbor & Oak demo"}
