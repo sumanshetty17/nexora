@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label, Textarea } from "@/components/ui/input";
-import { addKnowledge, deleteDoc, generateFaqs, ingestWebsite, listDocs } from "@/lib/server/knowledge";
+import { addKnowledge, deleteDoc, generateFaqs, ingestWebsite, listDocs, searchKnowledge } from "@/lib/server/knowledge";
 import { getSite } from "@/lib/server/sites";
 
 export const Route = createFileRoute("/app/$siteId/knowledge")({ component: KnowledgePage });
@@ -20,6 +20,7 @@ function KnowledgePage() {
   const [content, setContent] = useState("");
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
+  const [probe, setProbe] = useState("");
 
   useEffect(() => {
     if (site.data?.websiteUrl && !url) setUrl(site.data.websiteUrl);
@@ -74,6 +75,10 @@ function KnowledgePage() {
       toast.success(`Added ${r.added} FAQs`);
     },
     onError: (e: Error) => toast.error(e.message),
+  });
+
+  const probeQ = useMutation({
+    mutationFn: () => searchKnowledge({ data: { siteId, query: probe } }),
   });
 
   const remove = useMutation({
@@ -166,6 +171,39 @@ function KnowledgePage() {
               </label>
             </div>
           </div>
+        </Card>
+        <Card className="lg:col-span-2">
+          <h2 className="font-display text-2xl tracking-tight">Test retrieval</h2>
+          <p className="mt-1 text-sm text-muted">Ask the way a customer would. See which sources the assistant will cite.</p>
+          <form
+            className="mt-4 flex flex-col gap-3 sm:flex-row"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (probe.trim()) probeQ.mutate();
+            }}
+          >
+            <Input
+              value={probe}
+              onChange={(e) => setProbe(e.target.value)}
+              placeholder="Do you offer white-glove delivery to Seattle?"
+            />
+            <Button type="submit" variant="secondary" disabled={probeQ.isPending || probe.trim().length < 3}>
+              {probeQ.isPending ? "Searching…" : "Search"}
+            </Button>
+          </form>
+          {probeQ.data ? (
+            <ul className="mt-4 space-y-2">
+              {probeQ.data.map((hit, i) => (
+                <li key={`${hit.title}-${i}`} className="rounded-2xl border border-border bg-bg px-4 py-3">
+                  <p className="text-sm font-medium">{hit.title}</p>
+                  <p className="mt-1 text-sm text-muted">{hit.excerpt}</p>
+                </li>
+              ))}
+              {probeQ.data.length === 0 ? (
+                <li className="text-sm text-muted">Nothing matched. Add a FAQ or a policy page covering that question.</li>
+              ) : null}
+            </ul>
+          ) : null}
         </Card>
         <Card className="lg:col-span-2">
           <h2 className="font-display text-2xl tracking-tight">Add a FAQ</h2>

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ChatPanel } from "@/components/chat-panel";
 import { getWidgetConfig, widgetChat } from "@/lib/server/chat";
 import { DEMO_PUBLIC_ID } from "@/lib/server/demo-content";
+import { captureLead } from "@/lib/server/leads";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({ component: Home });
@@ -53,6 +54,11 @@ function Home() {
               onSend={(message, conversationId) =>
                 widgetChat({ data: { publicId: DEMO_PUBLIC_ID, message, conversationId } })
               }
+              onCaptureLead={({ conversationId, name, email, note }) =>
+                captureLead({
+                  data: { publicId: DEMO_PUBLIC_ID, conversationId, name, email, note },
+                }).then(() => undefined)
+              }
             />
           </div>
         </section>
@@ -68,7 +74,7 @@ function Home() {
               {
                 icon: MessageSquare,
                 title: "Answer on the site",
-                body: "One script tag. A calm widget that cites your knowledge, stays inside policy, and hands hard cases to a human.",
+                body: "One script tag. A calm widget that cites your knowledge, stays inside policy, and captures an email when it needs a human.",
               },
               {
                 icon: LineChart,

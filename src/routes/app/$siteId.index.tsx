@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { playgroundChat } from "@/lib/server/chat";
+import { captureLead } from "@/lib/server/leads";
 import { getInsights } from "@/lib/server/insights";
 import { listDocs } from "@/lib/server/knowledge";
-import { getSite, prepareAssistant, updateSite } from "@/lib/server/sites";
+import { getReadiness, getSite, prepareAssistant, updateSite } from "@/lib/server/sites";
 import { Check } from "lucide-react";
 import { useState } from "react";
 
@@ -21,6 +22,7 @@ function SiteOverview() {
   const siteQ = useQuery({ queryKey: ["site", siteId], queryFn: () => getSite({ data: siteId }) });
   const insights = useQuery({ queryKey: ["insights", siteId], queryFn: () => getInsights({ data: siteId }) });
   const docs = useQuery({ queryKey: ["docs", siteId], queryFn: () => listDocs({ data: siteId }) });
+  const ready = useQuery({ queryKey: ["readiness", siteId], queryFn: () => getReadiness({ data: siteId }) });
   const site = siteQ.data;
   const [welcome, setWelcome] = useState<string | null>(null);
   const [tone, setTone] = useState<string | null>(null);
@@ -45,6 +47,7 @@ function SiteOverview() {
     mutationFn: () => prepareAssistant({ data: siteId }),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["site", siteId] });
+      await qc.invalidateQueries({ queryKey: ["readiness", siteId] });
       toast.success("Assistant brief written from your knowledge");
     },
     onError: (e: Error) => toast.error(e.message),
@@ -134,7 +137,11 @@ function SiteOverview() {
         ))}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-4">
+        <Card className="p-4">
+          <p className="text-xs uppercase tracking-wider text-muted">Readiness</p>
+          <p className="mt-1 font-display text-3xl tabular-nums">{ready.data?.score ?? 0}%</p>
+        </Card>
         <Card className="p-4">
           <p className="text-xs uppercase tracking-wider text-muted">Conversations</p>
           <p className="mt-1 font-display text-3xl tabular-nums">{insights.data?.totalConversations ?? 0}</p>
@@ -148,6 +155,20 @@ function SiteOverview() {
           <p className="mt-1 font-display text-2xl">{top?.topic ?? "—"}</p>
         </Card>
       </div>
+
+      {ready.data ? (
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {ready.data.checks.map((c) => (
+            <div key={c.id} className="rounded-2xl border border-border bg-surface px-4 py-3">
+              <p className={c.done ? "text-sm font-medium" : "text-sm font-medium text-muted"}>
+                {c.done ? "Ready · " : "Open · "}
+                {c.label}
+              </p>
+              <p className="mt-1 text-xs text-muted">{c.hint}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
@@ -190,6 +211,11 @@ function SiteOverview() {
             }
             onSend={(message, conversationId) =>
               playgroundChat({ data: { siteId, message, conversationId } })
+            }
+            onCaptureLead={({ conversationId, name, email, note }) =>
+              captureLead({
+                data: { publicId: site.publicId, conversationId, name, email, note },
+              }).then(() => undefined)
             }
           />
         </div>

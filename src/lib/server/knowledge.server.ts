@@ -3,7 +3,7 @@ import { nid } from "@/lib/utils";
 import type { KnowledgeDoc } from "@/lib/types";
 import { mapDoc } from "./serialize";
 import { crawlSite } from "./crawl";
-import { indexDocument } from "./rag";
+import { indexDocument, retrieveChunks } from "./rag";
 import { requireSite } from "./sites.server";
 
 export async function listDocsForSite(userId: string, siteId: string): Promise<KnowledgeDoc[]> {
@@ -136,4 +136,18 @@ export async function generateFaqsForSite(
   }
   await sql`update sites set updated_at = now() where id = ${siteId} and user_id = ${userId}`;
   return { added: titles.length, titles };
+}
+
+export async function searchDocsForSite(
+  userId: string,
+  input: { siteId: string; query: string },
+): Promise<{ title: string; excerpt: string; sourceUrl: string | null }[]> {
+  await requireSite(userId, input.siteId);
+  const sql = await getSql();
+  const chunks = await retrieveChunks(sql, input.siteId, input.query, 6);
+  return chunks.map((c) => ({
+    title: c.title,
+    excerpt: c.content.slice(0, 280),
+    sourceUrl: c.sourceUrl,
+  }));
 }

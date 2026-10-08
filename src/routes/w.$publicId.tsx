@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ChatPanel } from "@/components/chat-panel";
 import { getWidgetConfig, widgetChat } from "@/lib/server/chat";
+import { captureLead } from "@/lib/server/leads";
 
 export const Route = createFileRoute("/w/$publicId")({
   component: WidgetPage,
@@ -39,6 +40,9 @@ function WidgetPage() {
         suggestions={cfg.suggestions}
         onSend={(message, conversationId) =>
           widgetChat({ data: { publicId, message, conversationId } })
+        }
+        onCaptureLead={({ conversationId, name, email, note }) =>
+          captureLead({ data: { publicId, conversationId, name, email, note } }).then(() => undefined)
         }
       />
     </div>

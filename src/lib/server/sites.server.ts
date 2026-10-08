@@ -1,6 +1,6 @@
 import { getSql } from "@/lib/db";
 import { nid, publicId } from "@/lib/utils";
-import type { Site, UsageSummary } from "@/lib/types";
+import type { Site, SiteReadiness, UsageSummary } from "@/lib/types";
 import { mapSite } from "./serialize";
 import { grokChat, parseModelJson } from "./ai";
 import { indexDocument, retrieveChunks } from "./rag";
@@ -116,6 +116,7 @@ export async function deleteSiteForUser(userId: string, siteId: string) {
   await sql`delete from conversations where site_id = ${siteId} and site_id in (select id from sites where id = ${siteId} and user_id = ${userId})`;
   await sql`delete from topic_stats where site_id = ${siteId} and site_id in (select id from sites where id = ${siteId} and user_id = ${userId})`;
   await sql`delete from emails where site_id = ${siteId} and user_id = ${userId}`;
+  await sql`delete from leads where site_id = ${siteId} and site_id in (select id from sites where id = ${siteId} and user_id = ${userId})`;
   await sql`delete from usage_events where site_id = ${siteId} and user_id = ${userId}`;
   await sql`delete from sites where id = ${siteId} and user_id = ${userId}`;
   return { ok: true as const };
@@ -216,4 +217,67 @@ export async function usageForUser(userId: string): Promise<UsageSummary> {
     emails30d: emails[0]?.n ?? 0,
     knowledgeChars: chars[0]?.n ?? 0,
   };
+}
+
+export async function readinessForSite(userId: string, siteId: string): Promise<SiteReadiness> {
+  const site = await requireSite(userId, siteId);
+  const sql = await getSql();
+  const docs = await sql<{ n: number; chars: number; faqs: number }>`
+    select count(*)::int as n,
+           coalesce(sum(char_count),0)::int as chars,
+           count(*) filter (where kind = 'faq')::int as faqs
+      from knowledge_docs where site_id = ${siteId}
+  `;
+  const conv = await sql<{ n: number }>`
+    select count(*)::int as n from conversations where site_id = ${siteId}
+  `;
+  const n = docs[0]?.n ?? 0;
+  const chars = docs[0]?.chars ?? 0;
+  const faqs = docs[0]?.faqs ?? 0;
+  const checks = [
+    {
+      id: "url",
+      label: "Website URL",
+      done: Boolean(site.websiteUrl),
+      hint: "So customers know which site this assistant belongs to",
+    },
+    {
+      id: "docs",
+      label: "Knowledge sources",
+      done: n > 0,
+      hint: "Crawl pages or paste policies the assistant should cite",
+    },
+    {
+      id: "depth",
+      label: "Enough material",
+      done: chars >= 1500 || n >= 3,
+      hint: "A few pages or ~1,500 characters is a workable starting corpus",
+    },
+    {
+      id: "faq",
+      label: "FAQs indexed",
+      done: faqs > 0,
+      hint: "Suggested questions in the widget come from FAQs",
+    },
+    {
+      id: "voice",
+      label: "Voice prepared",
+      done: Boolean(site.systemBrief),
+      hint: "Writes a brief from your sources so replies stay on-brand",
+    },
+    {
+      id: "live",
+      label: "Marked live",
+      done: site.status === "live",
+      hint: "Install the snippet once you are happy with playground answers",
+    },
+    {
+      id: "tested",
+      label: "Tested with a question",
+      done: (conv[0]?.n ?? 0) > 0,
+      hint: "Use the playground or the widget so insights have something to show",
+    },
+  ];
+  const done = checks.filter((c) => c.done).length;
+  return { score: Math.round((done / checks.length) * 100), checks };
 }

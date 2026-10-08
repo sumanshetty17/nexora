@@ -3,7 +3,13 @@ import { ArrowUp, LoaderCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ChatTurnResult } from "@/lib/types";
 
-type Bubble = { id: string; role: "user" | "assistant"; content: string };
+type Bubble = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  sources?: { title: string; excerpt: string }[];
+  needsHuman?: boolean;
+};
 
 export function ChatPanel({
   name,
@@ -12,6 +18,7 @@ export function ChatPanel({
   compact = false,
   suggestions,
   onSend,
+  onCaptureLead,
 }: {
   name: string;
   welcome: string;
@@ -19,16 +26,29 @@ export function ChatPanel({
   compact?: boolean;
   suggestions?: string[];
   onSend: (message: string, conversationId?: string) => Promise<ChatTurnResult>;
+  onCaptureLead?: (input: {
+    conversationId: string;
+    name: string;
+    email: string;
+    note: string;
+  }) => Promise<void>;
 }) {
   const [conversationId, setConversationId] = useState<string>();
   const [messages, setMessages] = useState<Bubble[]>([]);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [leadName, setLeadName] = useState("");
+  const [leadEmail, setLeadEmail] = useState("");
+  const [leadNote, setLeadNote] = useState("");
+  const [leadSent, setLeadSent] = useState(false);
+  const [leadPending, setLeadPending] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
   const accent = brandColor || "#21564A";
 
   const empty = messages.length === 0;
+  const last = messages[messages.length - 1];
+  const showLead = Boolean(onCaptureLead && last?.needsHuman && conversationId && !leadSent);
   const chips = useMemo(
     () =>
       suggestions && suggestions.length > 0
@@ -50,13 +70,39 @@ export function ChatPanel({
       setConversationId(result.conversationId);
       setMessages((m) => [
         ...m,
-        { id: `a_${Date.now()}`, role: "assistant", content: result.reply },
+        {
+          id: `a_${Date.now()}`,
+          role: "assistant",
+          content: result.reply,
+          sources: result.sources,
+          needsHuman: result.needsHuman,
+        },
       ]);
+      if (!result.needsHuman) setLeadSent(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send that.");
     } finally {
       setPending(false);
       queueMicrotask(() => bottom.current?.scrollIntoView({ behavior: "smooth" }));
+    }
+  }
+
+  async function submitLead() {
+    if (!onCaptureLead || !conversationId || leadPending) return;
+    setLeadPending(true);
+    setError(null);
+    try {
+      await onCaptureLead({
+        conversationId,
+        name: leadName,
+        email: leadEmail,
+        note: leadNote,
+      });
+      setLeadSent(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send that.");
+    } finally {
+      setLeadPending(false);
     }
   }
 
@@ -106,9 +152,65 @@ export function ChatPanel({
               style={m.role === "user" ? { background: accent } : undefined}
             >
               {m.content}
+              {m.role === "assistant" && m.sources && m.sources.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {m.sources.map((s) => (
+                    <span
+                      key={`${m.id}-${s.title}`}
+                      className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted"
+                      title={s.excerpt}
+                    >
+                      {s.title}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
         ))}
+        {showLead ? (
+          <form
+            className="rounded-2xl border border-border bg-bg p-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submitLead();
+            }}
+          >
+            <p className="text-xs font-medium">Leave a way to reach you — the team will follow up.</p>
+            <div className="mt-2 grid gap-2">
+              <input
+                value={leadName}
+                onChange={(e) => setLeadName(e.target.value)}
+                placeholder="Name"
+                className="h-10 rounded-xl border border-border bg-surface px-3 text-sm outline-none"
+              />
+              <input
+                required
+                type="email"
+                value={leadEmail}
+                onChange={(e) => setLeadEmail(e.target.value)}
+                placeholder="Email"
+                className="h-10 rounded-xl border border-border bg-surface px-3 text-sm outline-none"
+              />
+              <textarea
+                value={leadNote}
+                onChange={(e) => setLeadNote(e.target.value)}
+                placeholder="Anything else we should know"
+                rows={2}
+                className="rounded-xl border border-border bg-surface px-3 py-2 text-sm outline-none"
+              />
+              <button
+                type="submit"
+                disabled={leadPending || !leadEmail.trim()}
+                className="h-10 rounded-xl text-sm text-primary-fg disabled:opacity-40"
+                style={{ background: accent }}
+              >
+                {leadPending ? "Sending…" : "Send to the team"}
+              </button>
+            </div>
+          </form>
+        ) : null}
+        {leadSent ? <p className="text-xs text-muted">Thanks — someone on the team will follow up.</p> : null}
         {pending ? (
           <div className="flex items-center gap-2 text-xs text-muted">
             <LoaderCircle className="size-3.5 animate-spin" />

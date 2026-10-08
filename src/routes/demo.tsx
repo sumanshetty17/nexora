@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ChatPanel } from "@/components/chat-panel";
 import { getWidgetConfig, widgetChat } from "@/lib/server/chat";
 import { DEMO_PUBLIC_ID } from "@/lib/server/demo-content";
+import { captureLead } from "@/lib/server/leads";
 
 export const Route = createFileRoute("/demo")({ component: DemoStore });
 
@@ -75,6 +76,11 @@ function DemoStore() {
           suggestions={widget.data?.suggestions}
           onSend={(message, conversationId) =>
             widgetChat({ data: { publicId: DEMO_PUBLIC_ID, message, conversationId } })
+          }
+          onCaptureLead={({ conversationId, name, email, note }) =>
+            captureLead({
+              data: { publicId: DEMO_PUBLIC_ID, conversationId, name, email, note },
+            }).then(() => undefined)
           }
         />
       </div>

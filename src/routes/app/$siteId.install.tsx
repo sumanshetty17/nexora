@@ -53,7 +53,8 @@ function InstallPage() {
         <h1 className="font-display text-4xl tracking-tight">Install</h1>
         <p className="mt-2 max-w-xl text-muted">
           Paste this before the closing body tag on your site. The bubble opens a
-          Nexora frame — customers stay on your domain.
+          Nexora frame — customers stay on your domain. If the assistant cannot
+          answer, it asks for an email so the lead lands in your dashboard.
         </p>
       </div>
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">

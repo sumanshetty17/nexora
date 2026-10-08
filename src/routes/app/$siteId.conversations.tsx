@@ -1,15 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { getConversationMessages, listConversations } from "@/lib/server/chat";
+import { Button } from "@/components/ui/button";
+import { Input, Textarea } from "@/components/ui/input";
+import { exportConversations, getConversationMessages, listConversations, ownerReply } from "@/lib/server/chat";
 import { formatDistanceToNow } from "date-fns";
 
 export const Route = createFileRoute("/app/$siteId/conversations")({ component: InboxPage });
 
 function InboxPage() {
   const { siteId } = Route.useParams();
+  const qc = useQueryClient();
   const list = useQuery({
     queryKey: ["convos", siteId],
     queryFn: () => listConversations({ data: siteId }),
@@ -17,11 +20,38 @@ function InboxPage() {
   const [open, setOpen] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "human" | "frustrated">("all");
+  const [reply, setReply] = useState("");
   const thread = useQuery({
     queryKey: ["thread", siteId, open],
     queryFn: () => getConversationMessages({ data: { siteId, conversationId: open! } }),
     enabled: Boolean(open),
   });
+
+  const send = useMutation({
+    mutationFn: () => ownerReply({ data: { siteId, conversationId: open!, message: reply } }),
+    onSuccess: async () => {
+      setReply("");
+      await qc.invalidateQueries({ queryKey: ["thread", siteId, open] });
+      await qc.invalidateQueries({ queryKey: ["convos", siteId] });
+      toast.success("Reply sent");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  async function downloadCsv() {
+    try {
+      const { csv } = await exportConversations({ data: siteId });
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "nexora-conversations.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not export");
+    }
+  }
 
   const rows = useMemo(() => {
     const all = list.data ?? [];
@@ -61,6 +91,9 @@ function InboxPage() {
             {key === "all" ? "All" : key === "human" ? "Needs a human" : "Frustrated"}
           </button>
         ))}
+        <Button variant="secondary" size="sm" className="ml-auto" onClick={() => void downloadCsv()}>
+          Export CSV
+        </Button>
       </div>
       <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr]">
         <div className="space-y-2">
@@ -95,6 +128,22 @@ function InboxPage() {
                   <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{m.content}</p>
                 </div>
               ))}
+              <form
+                className="mt-4 space-y-2 border-t border-border pt-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  send.mutate();
+                }}
+              >
+                <Textarea
+                  value={reply}
+                  onChange={(e) => setReply(e.target.value)}
+                  placeholder="Reply as the team…"
+                />
+                <Button type="submit" disabled={send.isPending || !reply.trim()}>
+                  {send.isPending ? "Sending…" : "Send reply"}
+                </Button>
+              </form>
             </div>
           )}
         </div>

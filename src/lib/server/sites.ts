@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
-import type { Site, UsageSummary } from "@/lib/types";
+import type { Site, SiteReadiness, UsageSummary } from "@/lib/types";
 
 export const listSites = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
@@ -83,4 +83,12 @@ export const getUsage = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<UsageSummary> => {
     const { usageForUser } = await import("./sites.server");
     return usageForUser(context.userId);
+  });
+
+export const getReadiness = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((siteId: string) => siteId)
+  .handler(async ({ context, data: siteId }): Promise<SiteReadiness> => {
+    const { readinessForSite } = await import("./sites.server");
+    return readinessForSite(context.userId, siteId);
   });

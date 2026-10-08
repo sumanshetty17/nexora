@@ -1,5 +1,5 @@
 import { iso } from "@/lib/utils";
-import type { Conversation, EmailItem, KnowledgeDoc, Site, TopicStat } from "@/lib/types";
+import type { Conversation, EmailItem, KnowledgeDoc, Lead, Site, TopicStat } from "@/lib/types";
 
 type Row = Record<string, unknown>;
 
@@ -96,4 +96,19 @@ function num(value: unknown): number | undefined {
   if (value == null) return undefined;
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
+}
+
+export function mapLead(row: Row): Lead {
+  const status = String(row.status);
+  return {
+    id: String(row.id),
+    siteId: String(row.site_id),
+    conversationId: row.conversation_id ? String(row.conversation_id) : null,
+    name: String(row.name ?? ""),
+    email: String(row.email),
+    note: String(row.note ?? ""),
+    topic: row.topic ? String(row.topic) : null,
+    status: status === "contacted" || status === "closed" ? status : "new",
+    createdAt: iso(row.created_at),
+  };
 }

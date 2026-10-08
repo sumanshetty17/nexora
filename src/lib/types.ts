@@ -112,6 +112,30 @@ export type InsightBundle = {
   actions: InsightAction[];
 };
 
+export type Lead = {
+  id: string;
+  siteId: string;
+  conversationId: string | null;
+  name: string;
+  email: string;
+  note: string;
+  topic: string | null;
+  status: "new" | "contacted" | "closed";
+  createdAt: string;
+};
+
+export type ReadinessCheck = {
+  id: string;
+  label: string;
+  done: boolean;
+  hint: string;
+};
+
+export type SiteReadiness = {
+  score: number;
+  checks: ReadinessCheck[];
+};
+
 export type ChatTurnResult = {
   conversationId: string;
   reply: string;

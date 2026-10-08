@@ -39,3 +39,19 @@ export const getConversationMessages = createServerFn({ method: "GET" })
     const { conversationMessages } = await import("./chat.server");
     return conversationMessages(context.userId, data);
   });
+
+export const exportConversations = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((siteId: string) => siteId)
+  .handler(async ({ context, data: siteId }): Promise<{ csv: string }> => {
+    const { exportConversationsCsv } = await import("./chat.server");
+    return { csv: await exportConversationsCsv(context.userId, siteId) };
+  });
+
+export const ownerReply = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { siteId: string; conversationId: string; message: string }) => input)
+  .handler(async ({ context, data }) => {
+    const { ownerReplyForSite } = await import("./chat.server");
+    return ownerReplyForSite(context.userId, data);
+  });

@@ -25,6 +25,7 @@ import { Route as AppSiteIdEmailRouteImport } from './routes/app/$siteId.email'
 import { Route as AppSiteIdInsightsRouteImport } from './routes/app/$siteId.insights'
 import { Route as AppSiteIdInstallRouteImport } from './routes/app/$siteId.install'
 import { Route as AppSiteIdKnowledgeRouteImport } from './routes/app/$siteId.knowledge'
+import { Route as AppSiteIdLeadsRouteImport } from './routes/app/$siteId.leads'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -106,6 +107,11 @@ const AppSiteIdKnowledgeRoute = AppSiteIdKnowledgeRouteImport.update({
   path: '/knowledge',
   getParentRoute: () => AppSiteIdRoute,
 } as any)
+const AppSiteIdLeadsRoute = AppSiteIdLeadsRouteImport.update({
+  id: '/leads',
+  path: '/leads',
+  getParentRoute: () => AppSiteIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -123,6 +129,7 @@ export interface FileRoutesByFullPath {
   '/app/$siteId/insights': typeof AppSiteIdInsightsRoute
   '/app/$siteId/install': typeof AppSiteIdInstallRoute
   '/app/$siteId/knowledge': typeof AppSiteIdKnowledgeRoute
+  '/app/$siteId/leads': typeof AppSiteIdLeadsRoute
   '/app/$siteId/': typeof AppSiteIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -139,6 +146,7 @@ export interface FileRoutesByTo {
   '/app/$siteId/insights': typeof AppSiteIdInsightsRoute
   '/app/$siteId/install': typeof AppSiteIdInstallRoute
   '/app/$siteId/knowledge': typeof AppSiteIdKnowledgeRoute
+  '/app/$siteId/leads': typeof AppSiteIdLeadsRoute
   '/app/$siteId': typeof AppSiteIdIndexRoute
 }
 export interface FileRoutesById {
@@ -158,6 +166,7 @@ export interface FileRoutesById {
   '/app/$siteId/insights': typeof AppSiteIdInsightsRoute
   '/app/$siteId/install': typeof AppSiteIdInstallRoute
   '/app/$siteId/knowledge': typeof AppSiteIdKnowledgeRoute
+  '/app/$siteId/leads': typeof AppSiteIdLeadsRoute
   '/app/$siteId/': typeof AppSiteIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -178,6 +187,7 @@ export interface FileRouteTypes {
     | '/app/$siteId/insights'
     | '/app/$siteId/install'
     | '/app/$siteId/knowledge'
+    | '/app/$siteId/leads'
     | '/app/$siteId/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -194,6 +204,7 @@ export interface FileRouteTypes {
     | '/app/$siteId/insights'
     | '/app/$siteId/install'
     | '/app/$siteId/knowledge'
+    | '/app/$siteId/leads'
     | '/app/$siteId'
   id:
     | '__root__'
@@ -212,6 +223,7 @@ export interface FileRouteTypes {
     | '/app/$siteId/insights'
     | '/app/$siteId/install'
     | '/app/$siteId/knowledge'
+    | '/app/$siteId/leads'
     | '/app/$siteId/'
   fileRoutesById: FileRoutesById
 }
@@ -339,6 +351,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSiteIdKnowledgeRouteImport
       parentRoute: typeof AppSiteIdRoute
     }
+    '/app/$siteId/leads': {
+      id: '/app/$siteId/leads'
+      path: '/leads'
+      fullPath: '/app/$siteId/leads'
+      preLoaderRoute: typeof AppSiteIdLeadsRouteImport
+      parentRoute: typeof AppSiteIdRoute
+    }
   }
 }
 
@@ -348,6 +367,7 @@ interface AppSiteIdRouteChildren {
   AppSiteIdInsightsRoute: typeof AppSiteIdInsightsRoute
   AppSiteIdInstallRoute: typeof AppSiteIdInstallRoute
   AppSiteIdKnowledgeRoute: typeof AppSiteIdKnowledgeRoute
+  AppSiteIdLeadsRoute: typeof AppSiteIdLeadsRoute
   AppSiteIdIndexRoute: typeof AppSiteIdIndexRoute
 }
 
@@ -357,6 +377,7 @@ const AppSiteIdRouteChildren: AppSiteIdRouteChildren = {
   AppSiteIdInsightsRoute: AppSiteIdInsightsRoute,
   AppSiteIdInstallRoute: AppSiteIdInstallRoute,
   AppSiteIdKnowledgeRoute: AppSiteIdKnowledgeRoute,
+  AppSiteIdLeadsRoute: AppSiteIdLeadsRoute,
   AppSiteIdIndexRoute: AppSiteIdIndexRoute,
 }
 

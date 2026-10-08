@@ -49,3 +49,11 @@ export const generateFaqs = createServerFn({ method: "POST" })
     const { generateFaqsForSite } = await import("./knowledge.server");
     return generateFaqsForSite(context.userId, siteId);
   });
+
+export const searchKnowledge = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((input: { siteId: string; query: string }) => input)
+  .handler(async ({ context, data }) => {
+    const { searchDocsForSite } = await import("./knowledge.server");
+    return searchDocsForSite(context.userId, data);
+  });

@@ -8,6 +8,7 @@ import {
   MessageSquare,
   Plus,
   Settings,
+  Users,
 } from "lucide-react";
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
@@ -21,6 +22,7 @@ const links = [
   { to: ".", label: "Overview", icon: LayoutDashboard, suffix: "" },
   { to: "knowledge", label: "Knowledge", icon: BookOpen, suffix: "/knowledge" },
   { to: "conversations", label: "Inbox", icon: MessageSquare, suffix: "/conversations" },
+  { to: "leads", label: "Leads", icon: Users, suffix: "/leads" },
   { to: "insights", label: "Insights", icon: LineChart, suffix: "/insights" },
   { to: "email", label: "Email", icon: Mail, suffix: "/email" },
   { to: "install", label: "Install", icon: Inbox, suffix: "/install" },

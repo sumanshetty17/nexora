@@ -36,16 +36,19 @@ function extractiveReply(question: string, chunks: { content: string; title: str
     return "I don't have that in the knowledge base yet. A teammate can follow up if you leave a bit more detail.";
   }
   const q = question.toLowerCase();
+  const words = q.split(/[^a-z0-9]+/).filter((w) => w.length > 3);
   const scored = chunks
     .map((c) => {
-      const words = q.split(/[^a-z0-9]+/).filter((w) => w.length > 3);
       const hits = words.filter((w) => c.content.toLowerCase().includes(w)).length;
       return { c, hits };
     })
     .sort((a, b) => b.hits - a.hits);
-  const best = scored[0]?.c ?? chunks[0];
-  const excerpt = best.content.slice(0, 420).trim();
-  return `From ${best.title}: ${excerpt}`;
+  const best = scored[0];
+  if (!best || best.hits === 0) {
+    return "I don't have that in the knowledge base yet. A teammate can follow up if you leave a bit more detail.";
+  }
+  const excerpt = best.c.content.slice(0, 420).trim();
+  return `From ${best.c.title}: ${excerpt}`;
 }
 
 async function bumpTopic(
@@ -170,7 +173,10 @@ Rules:
 
   const topic = parsed?.topic?.trim() || inferTopic(message);
   const sentiment = parsed?.sentiment ?? (/\b(angry|terrible|worst|scam|refund)\b/i.test(message) ? "frustrated" : "neutral");
-  const needsHuman = Boolean(parsed?.needs_human);
+  const unsure =
+    chunks.length === 0 ||
+    /don['’]t have that|not sure|teammate can follow|knowledge base yet/i.test(reply);
+  const needsHuman = Boolean(parsed?.needs_human) || unsure || sentiment === "frustrated";
   const resolved = parsed?.resolved ?? !needsHuman;
   const intent = parsed?.intent ?? "question";
 
@@ -345,4 +351,54 @@ export async function conversationMessages(
     sentiment: r.sentiment,
     createdAt: iso(r.created_at),
   }));
+}
+
+export async function exportConversationsCsv(userId: string, siteId: string): Promise<string> {
+  const rows = await listConversationsForSite(userId, siteId);
+  const header = "id,channel,topic,sentiment,needs_human,preview,updated_at";
+  const body = rows.map((c) =>
+    [
+      c.id,
+      c.channel,
+      csv(c.lastTopic),
+      csv(c.lastSentiment),
+      c.needsHuman ? "yes" : "no",
+      csv(c.preview),
+      c.updatedAt,
+    ].join(","),
+  );
+  return [header, ...body].join("\n");
+}
+
+export async function ownerReplyForSite(
+  userId: string,
+  input: { siteId: string; conversationId: string; message: string },
+): Promise<{ ok: true }> {
+  await requireSite(userId, input.siteId);
+  const message = input.message.trim();
+  if (!message) throw new Error("Type a reply first.");
+  const sql = await getSql();
+  const found = await sql<{ id: string }>`
+    select id from conversations where id = ${input.conversationId} and site_id = ${input.siteId} limit 1
+  `;
+  if (!found[0]) throw new Error("Conversation not found");
+  await sql`
+    insert into messages (id, conversation_id, site_id, role, content)
+    values (${nid("msg")}, ${input.conversationId}, ${input.siteId}, ${"assistant"}, ${message})
+  `;
+  await sql`
+    update conversations set
+      message_count = message_count + 1,
+      needs_human = false,
+      last_sentiment = ${"positive"},
+      updated_at = now()
+    where id = ${input.conversationId}
+  `;
+  return { ok: true };
+}
+
+function csv(value: string | null | undefined): string {
+  const v = value ?? "";
+  if (/[",\n]/.test(v)) return `"${v.replaceAll('"', '""')}"`;
+  return v;
 }
