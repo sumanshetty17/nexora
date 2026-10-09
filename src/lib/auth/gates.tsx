@@ -64,18 +64,24 @@ export function SignInGate({
 }
 
 export function SignInButtons() {
+  const [error, setError] = useState<string | null>(null);
   return (
     <div className="flex w-full max-w-sm flex-col gap-2">
       {GROK_PROVIDERS.map((p) => (
         <button
           key={p.providerId}
           type="button"
-          onClick={() => signIn(p.providerId, { callbackURL: "/" })}
+          onClick={() => {
+            void signIn(p.providerId, { callbackURL: "/" }).catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : "Could not start sign-in.");
+            });
+          }}
           className="w-full cursor-pointer rounded-md border border-neutral-300 px-4 py-2 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900"
         >
           Continue with {p.label}
         </button>
       ))}
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
     </div>
   );
 }

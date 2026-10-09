@@ -98,7 +98,7 @@ type PopupMessage = { source: "grok-auth-popup"; token: string | null; error?: s
  */
 export async function signIn(
   providerId: string,
-  opts: { callbackURL?: string; errorCallbackURL?: string } = {},
+  opts: { callbackURL?: string; errorCallbackURL?: string; forceBroker?: boolean } = {},
 ): Promise<void> {
   const callbackURL = opts.callbackURL ?? "/";
   const errorCallbackURL = opts.errorCallbackURL ?? "/";
@@ -149,7 +149,17 @@ export async function signIn(
     errorCallbackURL,
   });
   if (error) throw new Error(error.message ?? "Sign-in failed");
-  if (data?.url) window.location.href = data.url;
+  if (data?.url) {
+    const here = window.location.hostname;
+    // The shared preview client cannot complete a callback on a public host.
+    // Leave the visitor on our page instead of the broker's JSON error.
+    if (!here.endsWith(".grok-sandbox.com") && !opts.forceBroker) {
+      throw new Error(
+        "Google and X can't sign you in on this public site yet. Use your email instead.",
+      );
+    }
+    window.location.href = data.url;
+  }
 }
 
 /**

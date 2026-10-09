@@ -1,6 +1,7 @@
 import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { GROK_PROVIDERS, authClient, authEnabled, signIn } from "@/lib/auth/client";
+import { getSignInOptions } from "@/lib/auth/sign-in-options";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,21 @@ function Login() {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [broker, setBroker] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getSignInOptions()
+      .then((opts) => {
+        if (!cancelled) setBroker(opts.broker);
+      })
+      .catch(() => {
+        if (!cancelled) setBroker(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (isPending) {
     return (
@@ -51,6 +67,17 @@ function Login() {
     }
   }
 
+  async function onBroker(providerId: string) {
+    setError(null);
+    setPending(true);
+    try {
+      await signIn(providerId, { callbackURL: "/app", forceBroker: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start sign-in.");
+      setPending(false);
+    }
+  }
+
   return (
     <main className="grid min-h-screen place-items-center px-4 py-10">
       <div className="w-full max-w-md rounded-[28px] border border-border bg-surface p-8 shadow-[var(--shadow-soft)]">
@@ -62,30 +89,40 @@ function Login() {
         </h1>
         <p className="mt-2 text-sm text-muted">
           {mode === "in"
-            ? "Sign in to train assistants, read insights, and handle email."
+            ? "Sign in with email to train assistants, read insights, and handle email."
             : "A workspace for every site you want to put an assistant on."}
         </p>
 
         {authEnabled ? (
           <>
-            <div className="mt-6 grid gap-2">
-              {GROK_PROVIDERS.map((p) => (
-                <Button
-                  key={p.providerId}
-                  type="button"
-                  variant="secondary"
-                  onClick={() => signIn(p.providerId, { callbackURL: "/app" })}
-                >
-                  Continue with {p.label}
-                </Button>
-              ))}
-            </div>
-            <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-wider text-muted">
-              <span className="h-px flex-1 bg-border" />
-              or email
-              <span className="h-px flex-1 bg-border" />
-            </div>
-            <form className="space-y-3" onSubmit={(e) => void onEmail(e)}>
+            {broker ? (
+              <div className="mt-6 grid gap-2">
+                {GROK_PROVIDERS.map((p) => (
+                  <Button
+                    key={p.providerId}
+                    type="button"
+                    variant="secondary"
+                    disabled={pending}
+                    onClick={() => void onBroker(p.providerId)}
+                  >
+                    Continue with {p.label}
+                  </Button>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-6 rounded-2xl bg-ink/5 px-4 py-3 text-sm text-muted">
+                Google and X sign-in can't return to this public address. Use email and password —
+                it stays on this site.
+              </p>
+            )}
+            {broker ? (
+              <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-wider text-muted">
+                <span className="h-px flex-1 bg-border" />
+                or email
+                <span className="h-px flex-1 bg-border" />
+              </div>
+            ) : null}
+            <form className={broker ? "space-y-3" : "mt-6 space-y-3"} onSubmit={(e) => void onEmail(e)}>
               {mode === "up" ? (
                 <div className="space-y-1.5">
                   <Label htmlFor="name">Name</Label>
@@ -117,7 +154,7 @@ function Login() {
               </div>
               {error ? <p className="text-sm text-danger">{error}</p> : null}
               <Button type="submit" className="w-full" disabled={pending}>
-                {pending ? "Please wait…" : mode === "in" ? "Sign in" : "Create account"}
+                {pending ? "Please wait…" : mode === "in" ? "Continue" : "Create account"}
               </Button>
             </form>
             <button
