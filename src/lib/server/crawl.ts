@@ -50,9 +50,9 @@ export function htmlToText(html: string): { title: string; description: string; 
   return { title, description, text, links };
 }
 
-async function fetchPage(url: string): Promise<string | null> {
+async function fetchPage(url: string, timeoutMs = TIMEOUT_MS): Promise<string | null> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       signal: controller.signal,
@@ -112,22 +112,27 @@ function sameHostLinks(origin: URL, href: string, rawLinks: string[], seen: Set<
   return out;
 }
 
-export async function crawlSite(startUrl: string): Promise<CrawledPage[]> {
+export async function crawlSite(
+  startUrl: string,
+  opts?: { maxPages?: number; timeoutMs?: number },
+): Promise<CrawledPage[]> {
   const origin = isSafeHttpUrl(startUrl);
   if (!origin) throw new Error("Enter a public http(s) website URL.");
+  const maxPages = Math.min(MAX_PAGES, Math.max(1, opts?.maxPages ?? MAX_PAGES));
+  const timeoutMs = opts?.timeoutMs ?? TIMEOUT_MS;
 
   const seen = new Set<string>([origin.href]);
-  const homeHtml = await fetchPage(origin.href);
+  const homeHtml = await fetchPage(origin.href, timeoutMs);
   if (!homeHtml) throw new Error("Could not read that site. Try pasting key pages as text.");
   const homeParsed = htmlToText(homeHtml);
   const pages: CrawledPage[] = [];
   const home = pageFromHtml(origin.href, homeHtml);
   if (home) pages.push(home);
 
-  const follow = sameHostLinks(origin, origin.href, homeParsed.links, seen, MAX_PAGES - 1);
+  const follow = sameHostLinks(origin, origin.href, homeParsed.links, seen, maxPages - 1);
   const extras = await Promise.all(
     follow.map(async (href) => {
-      const html = await fetchPage(href);
+      const html = await fetchPage(href, timeoutMs);
       return html ? pageFromHtml(href, html) : null;
     }),
   );

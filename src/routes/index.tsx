@@ -1,14 +1,100 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, BookOpen, LineChart, Mail, MessageSquare } from "lucide-react";
+import { useState } from "react";
 import { MarketingFooter, MarketingNav } from "@/components/marketing-nav";
 import { Button } from "@/components/ui/button";
 import { ChatPanel } from "@/components/chat-panel";
+import { Input, Label } from "@/components/ui/input";
 import { getWidgetConfig, widgetChat } from "@/lib/server/chat";
 import { DEMO_PUBLIC_ID } from "@/lib/server/demo-content";
 import { captureLead } from "@/lib/server/leads";
+import { previewSite } from "@/lib/server/preview";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({ component: Home });
+
+function TryYourSite() {
+  const [url, setUrl] = useState("");
+  const [question, setQuestion] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{
+    reply: string;
+    pagesRead: number;
+    sources: { title: string; excerpt: string }[];
+  } | null>(null);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setPending(true);
+    setError(null);
+    try {
+      setResult(await previewSite({ data: { url, question } }));
+    } catch (err) {
+      setResult(null);
+      setError(err instanceof Error ? err.message : "Could not read that site.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <section id="try" className="border-y border-border bg-surface">
+      <div className="mx-auto grid max-w-6xl gap-10 px-4 py-16 lg:grid-cols-2">
+        <div>
+          <p className="text-sm font-medium text-primary">Try it on your site</p>
+          <h2 className="mt-2 font-display text-4xl tracking-tight">Ask a question your customers already ask.</h2>
+          <p className="mt-4 text-muted leading-relaxed">
+            Paste a public URL. Nexora reads a few pages and answers from that text only — no account,
+            and it will not invent a policy that is not on the page.
+          </p>
+        </div>
+        <form className="space-y-4 rounded-3xl border border-border bg-bg p-6" onSubmit={(e) => void onSubmit(e)}>
+          <div className="space-y-1.5">
+            <Label htmlFor="try-url">Website</Label>
+            <Input
+              id="try-url"
+              type="url"
+              required
+              placeholder="https://yourcompany.com"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="try-q">Customer question</Label>
+            <Input
+              id="try-q"
+              required
+              placeholder="Do you ship to Seattle?"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+            />
+          </div>
+          {error ? <p className="text-sm text-danger">{error}</p> : null}
+          <Button type="submit" disabled={pending}>
+            {pending ? "Reading the site…" : "Answer from the site"}
+          </Button>
+          {result ? (
+            <div className="rounded-2xl bg-surface p-4">
+              <p className="text-sm leading-relaxed">{result.reply}</p>
+              <p className="mt-3 text-xs text-muted">Read {result.pagesRead} public page{result.pagesRead === 1 ? "" : "s"}.</p>
+              {result.sources.length > 0 ? (
+                <ul className="mt-2 flex flex-wrap gap-2">
+                  {result.sources.map((source) => (
+                    <li key={source.title} className="rounded-full border border-border px-2.5 py-1 text-xs text-muted">
+                      {source.title}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+        </form>
+      </div>
+    </section>
+  );
+}
 
 function Home() {
   const widget = useQuery({
@@ -62,6 +148,8 @@ function Home() {
             />
           </div>
         </section>
+
+        <TryYourSite />
 
         <section id="how" className="border-y border-border bg-surface">
           <div className="mx-auto grid max-w-6xl gap-8 px-4 py-16 md:grid-cols-3">
