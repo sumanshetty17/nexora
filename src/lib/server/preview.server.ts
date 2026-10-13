@@ -1,31 +1,70 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { grokChat, hasXaiKey, parseModelJson } from "./ai";
 import { crawlSite } from "./crawl";
 import { chunkText, queryTerms } from "./rag";
+
+export type PreviewTurn = { role: "user" | "assistant"; content: string };
 
 export type SitePreview = {
   reply: string;
   pagesRead: number;
   sources: { title: string; excerpt: string }[];
+  context: string;
+  proof: string;
+  suggestions: string[];
 };
 
 type Chunk = { title: string; content: string; hits: number };
 
-function rankChunks(question: string, pages: { title: string; content: string }[]): Chunk[] {
+const CONTEXT_CAP = 9000;
+
+function proofFor(url: string, context: string, pagesRead: number): string {
+  const secret = process.env.BETTER_AUTH_SECRET?.trim() || "nexora-preview";
+  return createHmac("sha256", secret).update(`${pagesRead}\n${url}\n${context}`).digest("hex");
+}
+
+function proofMatches(url: string, context: string, pagesRead: number, proof: string): boolean {
+  if (!/^[a-f0-9]{64}$/.test(proof) || context.length > CONTEXT_CAP) return false;
+  const expected = proofFor(url, context, pagesRead);
+  return timingSafeEqual(Buffer.from(expected), Buffer.from(proof));
+}
+
+function packPages(pages: { title: string; content: string }[]): string {
+  let out = "";
+  for (const page of pages) {
+    const block = `# ${page.title || "Page"}\n${page.content.slice(0, 3500)}\n\n`;
+    if (out.length + block.length > CONTEXT_CAP) break;
+    out += block;
+  }
+  return out.trim();
+}
+
+function rankChunks(question: string, context: string): Chunk[] {
   const terms = queryTerms(question);
+  const pages = context.split(/\n# /).map((block, i) => {
+    const text = i === 0 ? block : `# ${block}`;
+    const title = text.split("\n")[0]?.replace(/^# /, "") || "Page";
+    return { title, content: text };
+  });
   const chunks = pages.flatMap((page) =>
-    chunkText(page.content).map((content) => ({ title: page.title || "Page", content })),
+    chunkText(page.content).map((content) => ({ title: page.title, content })),
   );
-  return chunks
+  const ranked = chunks
     .map((chunk) => ({
       ...chunk,
       hits: terms.filter((term) => chunk.content.toLowerCase().includes(term)).length,
     }))
-    .filter((chunk) => chunk.hits > 0)
-    .sort((a, b) => b.hits - a.hits)
-    .slice(0, 5);
+    .sort((a, b) => b.hits - a.hits);
+  const matched = ranked.filter((chunk) => chunk.hits > 0);
+  return (matched.length > 0 ? matched : ranked).slice(0, 5);
 }
 
-function extractive(question: string, chunks: Chunk[]): string {
+function suggest(context: string): string[] {
+  const found = context.match(/[A-Z][^?\n]{12,90}\?/g) ?? [];
+  return [...new Set(found.map((line) => line.trim()))].slice(0, 3);
+}
+
+function extractive(chunks: Chunk[]): string {
   const best = chunks[0];
   if (!best) {
     return "I read the public pages, but I could not find an answer to that. Try a more specific question, or add the policy text when you create the assistant.";
@@ -33,21 +72,56 @@ function extractive(question: string, chunks: Chunk[]): string {
   return `From ${best.title}: ${best.content.slice(0, 420).trim()}`;
 }
 
-export async function answerFromPublicSite(input: { url: string; question: string }): Promise<SitePreview> {
+function cleanHistory(history: PreviewTurn[] | undefined): PreviewTurn[] {
+  if (!history) return [];
+  return history
+    .filter((turn) => turn.role === "user" || turn.role === "assistant")
+    .slice(-6)
+    .map((turn) => ({ role: turn.role, content: turn.content.trim().slice(0, 400) }))
+    .filter((turn) => turn.content.length > 0);
+}
+
+export async function answerFromPublicSite(input: {
+  url: string;
+  question: string;
+  history?: PreviewTurn[];
+  context?: string;
+  proof?: string;
+  pagesRead?: number;
+}): Promise<SitePreview> {
   const question = input.question.trim();
   if (question.length < 4) throw new Error("Ask a real customer question.");
   if (question.length > 400) throw new Error("Keep the question under 400 characters.");
+  const url = input.url.trim();
+  const history = cleanHistory(input.history);
 
-  const pages = await crawlSite(input.url.trim(), { maxPages: 3, timeoutMs: 5000 });
-  if (pages.length === 0) throw new Error("That site did not return readable text.");
+  let context = "";
+  let pagesRead = 0;
+  const cached =
+    input.context &&
+    input.proof &&
+    typeof input.pagesRead === "number" &&
+    proofMatches(url, input.context, input.pagesRead, input.proof);
 
-  const chunks = rankChunks(question, pages);
+  if (cached && input.context) {
+    context = input.context;
+    pagesRead = input.pagesRead ?? 0;
+  } else {
+    const pages = await crawlSite(url, { maxPages: 3, timeoutMs: 5000 });
+    if (pages.length === 0) throw new Error("That site did not return readable text.");
+    context = packPages(pages);
+    pagesRead = pages.length;
+    if (!context) throw new Error("That site did not return readable text.");
+  }
+
+  const chunks = rankChunks(question, context);
   let reply = "";
 
   if (hasXaiKey() && chunks.length > 0) {
     const contextBlock = chunks
       .map((chunk, i) => `[#${i + 1} ${chunk.title}]\n${chunk.content.slice(0, 900)}`)
       .join("\n\n");
+    const prior = history.map((turn) => `${turn.role}: ${turn.content}`).join("\n");
     const result = await grokChat({
       maxTokens: 450,
       temperature: 0.3,
@@ -59,7 +133,7 @@ export async function answerFromPublicSite(input: { url: string; question: strin
         },
         {
           role: "user",
-          content: `Excerpts:\n${contextBlock}\n\nCustomer question: ${question}`,
+          content: `Excerpts:\n${contextBlock}\n\n${prior ? `Earlier:\n${prior}\n\n` : ""}Customer question: ${question}`,
         },
       ],
     });
@@ -70,14 +144,17 @@ export async function answerFromPublicSite(input: { url: string; question: strin
     }
   }
 
-  if (!reply) reply = extractive(question, chunks);
+  if (!reply) reply = extractive(chunks);
 
   return {
     reply,
-    pagesRead: pages.length,
+    pagesRead,
     sources: chunks.slice(0, 3).map((chunk) => ({
       title: chunk.title,
       excerpt: chunk.content.slice(0, 160),
     })),
+    context,
+    proof: proofFor(url, context, pagesRead),
+    suggestions: suggest(context),
   };
 }

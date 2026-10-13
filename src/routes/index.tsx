@@ -18,24 +18,47 @@ function TryYourSite() {
   const [question, setQuestion] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{
-    reply: string;
-    pagesRead: number;
-    sources: { title: string; excerpt: string }[];
-  } | null>(null);
+  const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [pack, setPack] = useState<{ context: string; proof: string; pagesRead: number } | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function ask(raw: string) {
+    const next = raw.trim();
+    if (!next || pending) return;
     setPending(true);
     setError(null);
+    setQuestion("");
+    const history = messages.slice(-6);
+    setMessages((current) => [...current, { role: "user", content: next }]);
     try {
-      setResult(await previewSite({ data: { url, question } }));
+      const result = await previewSite({
+        data: {
+          url,
+          question: next,
+          history,
+          context: pack?.context,
+          proof: pack?.proof,
+          pagesRead: pack?.pagesRead,
+        },
+      });
+      setPack({ context: result.context, proof: result.proof, pagesRead: result.pagesRead });
+      setSuggestions(result.suggestions.filter((item) => item.toLowerCase() !== next.toLowerCase()));
+      setMessages((current) => [...current, { role: "assistant", content: result.reply }]);
     } catch (err) {
-      setResult(null);
+      setMessages((current) => current.slice(0, -1));
+      setQuestion(next);
       setError(err instanceof Error ? err.message : "Could not read that site.");
     } finally {
       setPending(false);
     }
+  }
+
+  function reset() {
+    setMessages([]);
+    setPack(null);
+    setSuggestions([]);
+    setError(null);
+    setQuestion("");
   }
 
   return (
@@ -45,24 +68,67 @@ function TryYourSite() {
           <p className="text-sm font-medium text-primary">Try it on your site</p>
           <h2 className="mt-2 font-display text-4xl tracking-tight">Ask a question your customers already ask.</h2>
           <p className="mt-4 text-muted leading-relaxed">
-            Paste a public URL. Nexora reads a few pages and answers from that text only — no account,
+            Paste a public URL. Nexora reads a few pages and keeps answering from that text — no account,
             and it will not invent a policy that is not on the page.
           </p>
+          {pack ? (
+            <p className="mt-4 text-sm text-muted">
+              Holding {pack.pagesRead} page{pack.pagesRead === 1 ? "" : "s"} for this chat.{" "}
+              <Link to="/login" className="font-medium text-primary">
+                Save an assistant
+              </Link>{" "}
+              when you want it on the live site.
+            </p>
+          ) : null}
         </div>
-        <form className="space-y-4 rounded-3xl border border-border bg-bg p-6" onSubmit={(e) => void onSubmit(e)}>
+        <form
+          className="space-y-4 rounded-3xl border border-border bg-bg p-6"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void ask(question);
+          }}
+        >
           <div className="space-y-1.5">
             <Label htmlFor="try-url">Website</Label>
             <Input
               id="try-url"
               type="url"
               required
+              readOnly={Boolean(pack)}
               placeholder="https://yourcompany.com"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
             />
           </div>
+          {messages.length > 0 ? (
+            <div className="max-h-72 space-y-3 overflow-y-auto rounded-2xl bg-surface p-4">
+              {messages.map((message, index) => (
+                <p
+                  key={`${message.role}-${index}`}
+                  className={message.role === "user" ? "text-sm font-medium" : "text-sm leading-relaxed text-muted"}
+                >
+                  {message.content}
+                </p>
+              ))}
+              {pending ? <p className="text-sm text-muted">Reading…</p> : null}
+            </div>
+          ) : null}
+          {suggestions.length > 0 && !pending ? (
+            <div className="flex flex-wrap gap-2">
+              {suggestions.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  className="rounded-full border border-border px-3 py-1 text-left text-xs text-muted hover:text-ink"
+                  onClick={() => void ask(item)}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className="space-y-1.5">
-            <Label htmlFor="try-q">Customer question</Label>
+            <Label htmlFor="try-q">{messages.length ? "Follow-up" : "Customer question"}</Label>
             <Input
               id="try-q"
               required
@@ -72,24 +138,16 @@ function TryYourSite() {
             />
           </div>
           {error ? <p className="text-sm text-danger">{error}</p> : null}
-          <Button type="submit" disabled={pending}>
-            {pending ? "Reading the site…" : "Answer from the site"}
-          </Button>
-          {result ? (
-            <div className="rounded-2xl bg-surface p-4">
-              <p className="text-sm leading-relaxed">{result.reply}</p>
-              <p className="mt-3 text-xs text-muted">Read {result.pagesRead} public page{result.pagesRead === 1 ? "" : "s"}.</p>
-              {result.sources.length > 0 ? (
-                <ul className="mt-2 flex flex-wrap gap-2">
-                  {result.sources.map((source) => (
-                    <li key={source.title} className="rounded-full border border-border px-2.5 py-1 text-xs text-muted">
-                      {source.title}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" disabled={pending}>
+              {pending ? "Reading the site…" : messages.length ? "Ask a follow-up" : "Answer from the site"}
+            </Button>
+            {messages.length > 0 ? (
+              <Button type="button" variant="secondary" onClick={reset}>
+                New site
+              </Button>
+            ) : null}
+          </div>
         </form>
       </div>
     </section>

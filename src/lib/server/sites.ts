@@ -2,6 +2,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import type { Site, SiteReadiness, UsageSummary } from "@/lib/types";
 
+export const getDataStore = createServerFn({ method: "GET" }).handler(async () => {
+  const { dbSource } = await import("@/lib/db");
+  return { persistent: dbSource === "neon" };
+});
+
 export const listSites = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }): Promise<Site[]> => {
