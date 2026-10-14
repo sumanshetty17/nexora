@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, BookOpen, LineChart, Mail, MessageSquare } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MarketingFooter, MarketingNav } from "@/components/marketing-nav";
 import { Button } from "@/components/ui/button";
 import { ChatPanel } from "@/components/chat-panel";
@@ -9,6 +9,7 @@ import { getWidgetConfig, widgetChat } from "@/lib/server/chat";
 import { DEMO_PUBLIC_ID } from "@/lib/server/demo-content";
 import { captureLead } from "@/lib/server/leads";
 import { previewSite } from "@/lib/server/preview";
+import { encodePreviewPack, widgetSnippet } from "@/lib/preview-pack";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({ component: Home });
@@ -21,6 +22,14 @@ function TryYourSite() {
   const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
   const [pack, setPack] = useState<{ context: string; proof: string; pagesRead: number } | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [copied, setCopied] = useState(false);
+  const [origin, setOrigin] = useState("https://nexora-suman-9b6b.vercel.app");
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+
+  const snippet = pack ? widgetSnippet(origin, encodePreviewPack({ url, ...pack })) : "";
 
   async function ask(raw: string) {
     const next = raw.trim();
@@ -59,6 +68,7 @@ function TryYourSite() {
     setSuggestions([]);
     setError(null);
     setQuestion("");
+    setCopied(false);
   }
 
   return (
@@ -71,14 +81,22 @@ function TryYourSite() {
             Paste a public URL. Nexora reads a few pages and keeps answering from that text — no account,
             and it will not invent a policy that is not on the page.
           </p>
-          {pack ? (
-            <p className="mt-4 text-sm text-muted">
-              Holding {pack.pagesRead} page{pack.pagesRead === 1 ? "" : "s"} for this chat.{" "}
-              <Link to="/login" className="font-medium text-primary">
-                Save an assistant
-              </Link>{" "}
-              when you want it on the live site.
-            </p>
+          {snippet ? (
+            <div className="mt-6 space-y-3">
+              <p className="text-sm text-muted">
+                Paste this on the site. The bubble answers from the {pack?.pagesRead} page
+                {pack?.pagesRead === 1 ? "" : "s"} just read — no account.
+              </p>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  void navigator.clipboard.writeText(snippet).then(() => setCopied(true));
+                }}
+              >
+                {copied ? "Copied" : "Copy widget code"}
+              </Button>
+            </div>
           ) : null}
         </div>
         <form
@@ -155,6 +173,10 @@ function TryYourSite() {
 }
 
 function Home() {
+  const [origin, setOrigin] = useState("https://nexora-suman-9b6b.vercel.app");
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
   const widget = useQuery({
     queryKey: ["widget", DEMO_PUBLIC_ID],
     queryFn: () => getWidgetConfig({ data: DEMO_PUBLIC_ID }),
@@ -297,11 +319,11 @@ function Home() {
         <section className="mx-auto max-w-6xl px-4 py-16">
           <h2 className="font-display text-4xl tracking-tight">Install in one line.</h2>
           <p className="mt-3 max-w-xl text-muted">
-            Copy the snippet from your dashboard. It opens Nexora in a frame on your
-            site — your customers never leave the page.
+            One script tag. It opens the assistant on your site, and your customers never leave the page.
+            The Harbor & Oak demo below works today. After you try your own URL above, copy that snippet instead.
           </p>
           <pre className="mt-6 overflow-x-auto rounded-2xl bg-sidebar p-5 text-sm text-sidebar-fg">
-            <code>{`<script src="https://your-nexora-host/widget.js" data-nexora="nx_••••"></script>`}</code>
+            <code>{`<script src="${origin}/widget.js" data-nexora="harbor-oak"></script>`}</code>
           </pre>
         </section>
       </main>

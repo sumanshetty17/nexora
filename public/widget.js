@@ -2,10 +2,13 @@
   var script = document.currentScript;
   if (!script) return;
   var id = script.getAttribute("data-nexora");
-  if (!id) return;
+  var pack = script.getAttribute("data-pack");
+  if (!id && !pack) return;
   var origin = new URL(script.src).origin;
   var color = script.getAttribute("data-color") || "#21564A";
-  var iframeSrc = origin + "/w/" + encodeURIComponent(id);
+  var iframeSrc = pack
+    ? origin + "/w/preview#" + pack
+    : origin + "/w/" + encodeURIComponent(id);
 
   var root = document.createElement("div");
   root.setAttribute("data-nexora-root", id);
