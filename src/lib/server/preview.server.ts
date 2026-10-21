@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { grokChat, hasXaiKey, parseModelJson } from "./ai";
-import { crawlSite } from "./crawl";
+import { crawlSite, isSafeHttpUrl } from "./crawl";
 import { chunkText, queryTerms } from "./rag";
+import { researchPublicWeb } from "./research";
 
 export type PreviewTurn = { role: "user" | "assistant"; content: string };
 
@@ -16,7 +17,8 @@ export type SitePreview = {
 
 type Chunk = { title: string; content: string; hits: number };
 
-const CONTEXT_CAP = 9000;
+const CONTEXT_CAP = 48_000;
+const HIDDEN_TITLE = "Company facts";
 
 function proofFor(url: string, context: string, pagesRead: number): string {
   const secret = process.env.BETTER_AUTH_SECRET?.trim() || "nexora-preview";
@@ -29,11 +31,15 @@ function proofMatches(url: string, context: string, pagesRead: number, proof: st
   return timingSafeEqual(Buffer.from(expected), Buffer.from(proof));
 }
 
-function packPages(pages: { title: string; content: string }[]): string {
+function packPages(pages: { title: string; content: string }[], budget: number): string {
   let out = "";
   for (const page of pages) {
-    const block = `# ${page.title || "Page"}\n${page.content.slice(0, 3500)}\n\n`;
-    if (out.length + block.length > CONTEXT_CAP) break;
+    const block = `# ${page.title || "Page"}\n${page.content.slice(0, 6000)}\n\n`;
+    if (out.length + block.length > budget) {
+      const room = budget - out.length;
+      if (room > 400) out += block.slice(0, room);
+      break;
+    }
     out += block;
   }
   return out.trim();
@@ -56,7 +62,7 @@ function rankChunks(question: string, context: string): Chunk[] {
     }))
     .sort((a, b) => b.hits - a.hits);
   const matched = ranked.filter((chunk) => chunk.hits > 0);
-  return (matched.length > 0 ? matched : ranked).slice(0, 5);
+  return (matched.length > 0 ? matched : ranked).slice(0, 8);
 }
 
 function suggest(context: string): string[] {
@@ -64,12 +70,25 @@ function suggest(context: string): string[] {
   return [...new Set(found.map((line) => line.trim()))].slice(0, 3);
 }
 
-function extractive(chunks: Chunk[]): string {
-  const best = chunks[0];
-  if (!best) {
+function extractive(question: string, chunks: Chunk[]): string {
+  const terms = queryTerms(question);
+  const sentences = chunks.flatMap((chunk) =>
+    chunk.content
+      .split(/(?<=[.!?])\s+/)
+      .map((sentence) => sentence.trim())
+      .filter((sentence) => sentence.length > 40)
+      .map((sentence) => ({
+        sentence,
+        hits: terms.filter((term) => sentence.toLowerCase().includes(term)).length,
+      })),
+  );
+  const best = sentences.filter((row) => row.hits > 0).sort((a, b) => b.hits - a.hits).slice(0, 3);
+  if (best.length > 0) return best.map((row) => row.sentence).join(" ");
+  const fallback = chunks.find((chunk) => chunk.title !== HIDDEN_TITLE) ?? chunks[0];
+  if (!fallback) {
     return "I read the public pages, but I could not find an answer to that. Try a more specific question, or add the policy text when you create the assistant.";
   }
-  return `From ${best.title}: ${best.content.slice(0, 420).trim()}`;
+  return fallback.content.slice(0, 420).trim();
 }
 
 function cleanHistory(history: PreviewTurn[] | undefined): PreviewTurn[] {
@@ -107,9 +126,17 @@ export async function answerFromPublicSite(input: {
     context = input.context;
     pagesRead = input.pagesRead ?? 0;
   } else {
-    const pages = await crawlSite(url, { maxPages: 3, timeoutMs: 5000 });
+    const origin = isSafeHttpUrl(url);
+    const [pages, research] = await Promise.all([
+      crawlSite(url, { maxPages: 8, timeoutMs: 4500 }),
+      origin
+        ? researchPublicWeb(origin, origin.hostname.replace(/^www\./, "")).catch(() => [])
+        : Promise.resolve([]),
+    ]);
     if (pages.length === 0) throw new Error("That site did not return readable text.");
-    context = packPages(pages);
+    const siteContext = packPages(pages, 36_000);
+    const extraContext = packPages(research, 12_000);
+    context = [siteContext, extraContext].filter(Boolean).join("\n\n").slice(0, CONTEXT_CAP);
     pagesRead = pages.length;
     if (!context) throw new Error("That site did not return readable text.");
   }
@@ -144,17 +171,20 @@ export async function answerFromPublicSite(input: {
     }
   }
 
-  if (!reply) reply = extractive(chunks);
+  if (!reply) reply = extractive(question, chunks);
 
   return {
     reply,
     pagesRead,
-    sources: chunks.slice(0, 3).map((chunk) => ({
-      title: chunk.title,
-      excerpt: chunk.content.slice(0, 160),
-    })),
+    sources: chunks
+      .filter((chunk) => chunk.title !== HIDDEN_TITLE)
+      .slice(0, 3)
+      .map((chunk) => ({
+        title: chunk.title,
+        excerpt: chunk.content.slice(0, 160),
+      })),
     context,
     proof: proofFor(url, context, pagesRead),
-    suggestions: suggest(context),
+    suggestions: suggest(context.split(`# ${HIDDEN_TITLE}`)[0] ?? context),
   };
 }

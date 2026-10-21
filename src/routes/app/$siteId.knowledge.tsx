@@ -120,7 +120,7 @@ function KnowledgePage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <h2 className="font-display text-2xl tracking-tight">Read a website</h2>
-          <p className="mt-1 text-sm text-muted">Public pages only. We fetch the homepage and a few same-host links.</p>
+          <p className="mt-1 text-sm text-muted">Public pages on that site, including about, products, pricing, and help.</p>
           <form
             className="mt-4 flex flex-col gap-3"
             onSubmit={(e) => {
@@ -135,8 +135,9 @@ function KnowledgePage() {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
             />
+            {crawl.isPending ? <p className="text-sm text-muted">The website is being read. Please wait.</p> : null}
             <Button type="submit" disabled={crawl.isPending}>
-              {crawl.isPending ? "Reading…" : "Crawl and index"}
+              {crawl.isPending ? "Please wait" : "Crawl and index"}
             </Button>
           </form>
         </Card>

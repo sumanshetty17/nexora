@@ -112,7 +112,7 @@ async function runTurn(input: {
     values (${userMsgId}, ${conversationId}, ${input.site.id}, ${"user"}, ${message})
   `;
 
-  const chunks = await retrieveChunks(sql, input.site.id, message, 6);
+  const chunks = await retrieveChunks(sql, input.site.id, message, 8);
   const history = await sql<{ role: string; content: string }>`
     select role, content from messages
      where conversation_id = ${conversationId}

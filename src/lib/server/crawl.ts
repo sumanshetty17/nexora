@@ -1,6 +1,7 @@
 const MAX_BYTES = 280_000;
-const MAX_PAGES = 5;
-const TIMEOUT_MS = 8000;
+const DEFAULT_PAGES = 8;
+const HARD_CAP = 12;
+const TIMEOUT_MS = 6000;
 
 const PRIVATE_HOST =
   /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.|169\.254\.|::1|\[::1\])/;
@@ -92,21 +93,41 @@ function pageFromHtml(href: string, html: string): CrawledPage | null {
   };
 }
 
-function sameHostLinks(origin: URL, href: string, rawLinks: string[], seen: Set<string>, budget: number): string[] {
+export async function readPublicPage(raw: string, timeoutMs = 5000): Promise<CrawledPage | null> {
+  const url = isSafeHttpUrl(raw);
+  if (!url) return null;
+  const html = await fetchPage(url.href, timeoutMs);
+  if (!html) return null;
+  return pageFromHtml(url.href, html);
+}
+
+const PRIORITY_PATHS = [
+  "/about",
+  "/about-us",
+  "/company",
+  "/products",
+  "/services",
+  "/pricing",
+  "/faq",
+  "/faqs",
+  "/contact",
+  "/support",
+  "/help",
+];
+
+function sitemapLinks(origin: URL, xml: string): string[] {
   const out: string[] = [];
-  for (const raw of rawLinks) {
-    if (out.length >= budget) break;
+  for (const match of xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)) {
+    const raw = decodeEntities(match[1] ?? "");
     try {
-      const next = new URL(raw, href);
-      if (next.protocol !== "http:" && next.protocol !== "https:") continue;
+      const next = new URL(raw);
       if (next.hostname !== origin.hostname) continue;
+      if (next.protocol !== "http:" && next.protocol !== "https:") continue;
       next.hash = "";
       if (/\.(pdf|jpg|jpeg|png|gif|svg|zip|mp4|webp|css|js)$/i.test(next.pathname)) continue;
-      if (seen.has(next.href)) continue;
-      seen.add(next.href);
       out.push(next.href);
     } catch {
-      /* ignore bad href */
+      /* skip bad loc */
     }
   }
   return out;
@@ -118,7 +139,7 @@ export async function crawlSite(
 ): Promise<CrawledPage[]> {
   const origin = isSafeHttpUrl(startUrl);
   if (!origin) throw new Error("Enter a public http(s) website URL.");
-  const maxPages = Math.min(MAX_PAGES, Math.max(1, opts?.maxPages ?? MAX_PAGES));
+  const maxPages = Math.min(HARD_CAP, Math.max(1, opts?.maxPages ?? DEFAULT_PAGES));
   const timeoutMs = opts?.timeoutMs ?? TIMEOUT_MS;
 
   const seen = new Set<string>([origin.href]);
@@ -129,15 +150,38 @@ export async function crawlSite(
   const home = pageFromHtml(origin.href, homeHtml);
   if (home) pages.push(home);
 
-  const follow = sameHostLinks(origin, origin.href, homeParsed.links, seen, maxPages - 1);
+  const queue: string[] = [];
+  const push = (href: string) => {
+    if (pages.length + queue.length >= maxPages) return;
+    try {
+      const next = new URL(href, origin.href);
+      if (next.protocol !== "http:" && next.protocol !== "https:") return;
+      if (next.hostname !== origin.hostname) return;
+      next.hash = "";
+      if (/\.(pdf|jpg|jpeg|png|gif|svg|zip|mp4|webp|css|js)$/i.test(next.pathname)) return;
+      if (seen.has(next.href)) return;
+      seen.add(next.href);
+      queue.push(next.href);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  for (const path of PRIORITY_PATHS) push(new URL(path, origin).href);
+  const sitemapXml = await fetchPage(new URL("/sitemap.xml", origin).href, Math.min(timeoutMs, 4000));
+  if (sitemapXml) {
+    for (const href of sitemapLinks(origin, sitemapXml)) push(href);
+  }
+  for (const link of homeParsed.links) push(link);
+
   const extras = await Promise.all(
-    follow.map(async (href) => {
+    queue.map(async (href) => {
       const html = await fetchPage(href, timeoutMs);
       return html ? pageFromHtml(href, html) : null;
     }),
   );
   for (const page of extras) {
-    if (page) pages.push(page);
+    if (page && pages.length < maxPages) pages.push(page);
   }
   return pages;
 }

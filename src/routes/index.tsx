@@ -128,7 +128,7 @@ function TryYourSite() {
                   {message.content}
                 </p>
               ))}
-              {pending ? <p className="text-sm text-muted">Reading…</p> : null}
+              {pending ? <p className="text-sm text-muted">The website is being read. Please wait.</p> : null}
             </div>
           ) : null}
           {suggestions.length > 0 && !pending ? (
@@ -158,7 +158,7 @@ function TryYourSite() {
           {error ? <p className="text-sm text-danger">{error}</p> : null}
           <div className="flex flex-wrap gap-2">
             <Button type="submit" disabled={pending}>
-              {pending ? "Reading the site…" : messages.length ? "Ask a follow-up" : "Answer from the site"}
+              {pending ? "Please wait" : messages.length ? "Ask a follow-up" : "Answer from the site"}
             </Button>
             {messages.length > 0 ? (
               <Button type="button" variant="secondary" onClick={reset}>

@@ -122,13 +122,12 @@ function AppHome() {
               placeholder="We sell X, hours are Y, shipping is Z, returns within 30 days…"
             />
           </div>
+          {create.isPending && url.trim() ? (
+            <p className="text-sm text-muted">The website is being read. Please wait.</p>
+          ) : null}
           <div className="flex flex-wrap gap-3">
             <Button type="submit" disabled={create.isPending}>
-              {create.isPending
-                ? url.trim()
-                  ? "Reading your site…"
-                  : "Creating…"
-                : "Create and train"}
+              {create.isPending ? "Please wait" : "Create and train"}
             </Button>
             <Button type="button" variant="secondary" disabled={clone.isPending} onClick={() => clone.mutate()}>
               {clone.isPending ? "Copying…" : "Copy Harbor & Oak demo"}

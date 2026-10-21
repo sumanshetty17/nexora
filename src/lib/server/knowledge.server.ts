@@ -2,15 +2,17 @@ import { getSql } from "@/lib/db";
 import { nid } from "@/lib/utils";
 import type { KnowledgeDoc } from "@/lib/types";
 import { mapDoc } from "./serialize";
-import { crawlSite } from "./crawl";
+import { crawlSite, isSafeHttpUrl } from "./crawl";
 import { indexDocument, retrieveChunks } from "./rag";
+import { researchPublicWeb } from "./research";
 import { requireSite } from "./sites.server";
 
 export async function listDocsForSite(userId: string, siteId: string): Promise<KnowledgeDoc[]> {
   await requireSite(userId, siteId);
   const sql = await getSql();
   const rows = await sql`
-    select * from knowledge_docs where site_id = ${siteId} and user_id = ${userId}
+    select * from knowledge_docs
+    where site_id = ${siteId} and user_id = ${userId} and kind <> ${"background"}
     order by created_at desc
   `;
   return rows.map(mapDoc);
@@ -48,7 +50,13 @@ export async function ingestWebsiteForSite(
   data: { siteId: string; url: string },
 ): Promise<{ imported: number; titles: string[] }> {
   await requireSite(userId, data.siteId);
-  const pages = await crawlSite(data.url);
+  const origin = isSafeHttpUrl(data.url);
+  const [pages, research] = await Promise.all([
+    crawlSite(data.url),
+    origin
+      ? researchPublicWeb(origin, origin.hostname.replace(/^www\./, "")).catch(() => [])
+      : Promise.resolve([]),
+  ]);
   if (pages.length === 0) throw new Error("Could not read that site. Try pasting key pages as text.");
   const sql = await getSql();
   const titles: string[] = [];
@@ -60,6 +68,14 @@ export async function ingestWebsiteForSite(
     `;
     await indexDocument(sql, { siteId: data.siteId, docId: id, content: page.content });
     titles.push(page.title);
+  }
+  for (const note of research) {
+    const id = nid("doc");
+    await sql`
+      insert into knowledge_docs (id, site_id, user_id, kind, title, source_url, content, char_count)
+      values (${id}, ${data.siteId}, ${userId}, ${"background"}, ${note.title}, ${null}, ${note.content}, ${note.content.length})
+    `;
+    await indexDocument(sql, { siteId: data.siteId, docId: id, content: note.content });
   }
   await sql`
     update sites set website_url = ${data.url}, updated_at = now()
