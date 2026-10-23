@@ -6,6 +6,38 @@ const TIMEOUT_MS = 6000;
 const PRIVATE_HOST =
   /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.|169\.254\.|::1|\[::1\])/;
 
+const ASSET_EXT = /\.(css|js|mjs|map|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|eot|otf|pdf|zip|mp4|webm|xml|txt)(\?|$)/i;
+const STATIC_PATH = /^\/(_next|static|assets|api|graphql|cdn|fonts?|images?|img|media|build|chunks?|wp-content|wp-includes)(\/|$)/i;
+
+const PRIORITY_PATHS = [
+  "/about",
+  "/about-us",
+  "/company",
+  "/products",
+  "/product",
+  "/services",
+  "/pricing",
+  "/features",
+  "/faq",
+  "/faqs",
+  "/contact",
+  "/support",
+  "/help",
+  "/blog",
+  "/docs",
+  "/team",
+  "/careers",
+  "/privacy",
+  "/terms",
+];
+
+const BROWSER_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+};
+
 export function isSafeHttpUrl(raw: string): URL | null {
   try {
     const url = new URL(raw);
@@ -30,6 +62,42 @@ function decodeEntities(text: string): string {
     .replace(/&/gi, "&");
 }
 
+function normalizePageUrl(raw: string, base: string): string | null {
+  try {
+    const next = new URL(raw, base);
+    if (next.protocol !== "http:" && next.protocol !== "https:") return null;
+    next.hash = "";
+    if (next.pathname !== "/" && next.pathname.endsWith("/")) {
+      next.pathname = next.pathname.replace(/\/+$/, "");
+    }
+    for (const key of ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid"]) {
+      next.searchParams.delete(key);
+    }
+    return next.href;
+  } catch {
+    return null;
+  }
+}
+
+function looksLikePage(url: URL, originHost: string): boolean {
+  if (url.hostname !== originHost) return false;
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  const path = url.pathname || "/";
+  if (ASSET_EXT.test(path) || STATIC_PATH.test(path)) return false;
+  if (path.length > 120) return false;
+  return true;
+}
+
+function jsonLdText(html: string): string {
+  const blocks: string[] = [];
+  for (const match of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    const raw = decodeEntities((match[1] ?? "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+    if (raw.length > 40) blocks.push(raw.slice(0, 2000));
+    if (blocks.length >= 2) break;
+  }
+  return blocks.join("\n");
+}
+
 export function htmlToText(html: string): { title: string; description: string; text: string; links: string[] } {
   const title = decodeEntities(
     (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "").replace(/<[^>]+>/g, "").trim(),
@@ -39,16 +107,35 @@ export function htmlToText(html: string): { title: string; description: string; 
       html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i)?.[1] ??
       "",
   );
-  const links = [...html.matchAll(/<a[^>]+href=["']([^"'#]+)["']/gi)].map((m) => m[1] ?? "");
+  const links = discoverLinks(html);
+  const facts = jsonLdText(html);
   const stripped = html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-    .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
-    .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
-    .replace(/<header[\s\S]*?<\/header>/gi, " ");
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ");
   const text = decodeEntities(stripped.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
-  return { title, description, text, links };
+  return {
+    title,
+    description,
+    text: [facts, text].filter(Boolean).join("\n\n"),
+    links,
+  };
+}
+
+function discoverLinks(html: string): string[] {
+  const found: string[] = [];
+  const push = (raw: string | undefined) => {
+    if (!raw) return;
+    const value = raw.trim();
+    if (!value || value.startsWith("#") || /^(mailto:|tel:|javascript:|data:)/i.test(value)) return;
+    found.push(value);
+  };
+  for (const match of html.matchAll(/<a[^>]+href=["']([^"'#]+)["']/gi)) push(match[1]);
+  for (const match of html.matchAll(/\s(?:data-href|data-to|data-url|data-path)=["']([^"']+)["']/gi)) push(match[1]);
+  for (const match of html.matchAll(/["'](\/(?:[a-zA-Z][a-zA-Z0-9_-]{0,40})(?:\/[a-zA-Z0-9_-]{1,40}){0,3}\/?)["']/g)) {
+    push(match[1]);
+  }
+  return found;
 }
 
 async function fetchPage(url: string, timeoutMs = TIMEOUT_MS): Promise<string | null> {
@@ -58,14 +145,11 @@ async function fetchPage(url: string, timeoutMs = TIMEOUT_MS): Promise<string | 
     const res = await fetch(url, {
       signal: controller.signal,
       redirect: "follow",
-      headers: {
-        "User-Agent": "NexoraBot/1.0 (knowledge ingest)",
-        Accept: "text/html,application/xhtml+xml,text/plain;q=0.9",
-      },
+      headers: BROWSER_HEADERS,
     });
     if (!res.ok) return null;
     const type = res.headers.get("content-type") ?? "";
-    if (!/html|text|xml/i.test(type)) return null;
+    if (type && !/html|text|xml|json/i.test(type)) return null;
     const buf = await res.arrayBuffer();
     const slice = buf.byteLength > MAX_BYTES ? buf.slice(0, MAX_BYTES) : buf;
     return new TextDecoder("utf-8", { fatal: false }).decode(slice);
@@ -101,44 +185,59 @@ export async function readPublicPage(raw: string, timeoutMs = 5000): Promise<Cra
   return pageFromHtml(url.href, html);
 }
 
-const PRIORITY_PATHS = [
-  "/about",
-  "/about-us",
-  "/company",
-  "/products",
-  "/services",
-  "/pricing",
-  "/faq",
-  "/faqs",
-  "/contact",
-  "/support",
-  "/help",
-];
-
-function sitemapLinks(origin: URL, xml: string): string[] {
-  const out: string[] = [];
+function locsFromXml(originHost: string, xml: string): { pages: string[]; sitemaps: string[] } {
+  const pages: string[] = [];
+  const sitemaps: string[] = [];
   for (const match of xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)) {
-    const raw = decodeEntities(match[1] ?? "");
-    try {
-      const next = new URL(raw);
-      if (next.hostname !== origin.hostname) continue;
-      if (next.protocol !== "http:" && next.protocol !== "https:") continue;
-      next.hash = "";
-      if (/\.(pdf|jpg|jpeg|png|gif|svg|zip|mp4|webp|css|js)$/i.test(next.pathname)) continue;
-      out.push(next.href);
-    } catch {
-      /* skip bad loc */
+    const raw = decodeEntities(match[1] ?? "").trim();
+    const safe = isSafeHttpUrl(raw);
+    if (!safe || safe.hostname !== originHost) continue;
+    if (/\.xml(\?|$)/i.test(safe.pathname)) sitemaps.push(safe.href);
+    else if (looksLikePage(safe, originHost)) pages.push(safe.href);
+  }
+  return { pages, sitemaps };
+}
+
+async function discoverFromSitemaps(origin: URL, timeoutMs: number): Promise<string[]> {
+  const found = new Set<string>();
+  const seeds = [new URL("/sitemap.xml", origin).href, new URL("/sitemap_index.xml", origin).href];
+  const robots = await fetchPage(new URL("/robots.txt", origin).href, Math.min(timeoutMs, 3500));
+  if (robots) {
+    for (const line of robots.split(/\r?\n/)) {
+      if (!line.toLowerCase().startsWith("sitemap:")) continue;
+      const raw = line.slice(line.indexOf(":") + 1).trim();
+      const safe = isSafeHttpUrl(raw);
+      if (safe) seeds.push(safe.href);
     }
   }
-  return out;
+  const docs = await Promise.all(
+    [...new Set(seeds)].slice(0, 3).map((href) => fetchPage(href, Math.min(timeoutMs, 3500))),
+  );
+  const nested: string[] = [];
+  for (const xml of docs) {
+    if (!xml) continue;
+    const parsed = locsFromXml(origin.hostname, xml);
+    for (const href of parsed.pages) found.add(href);
+    nested.push(...parsed.sitemaps);
+  }
+  if (found.size < 4 && nested.length > 0) {
+    const extra = await fetchPage(nested[0]!, Math.min(timeoutMs, 3500));
+    if (extra) {
+      for (const href of locsFromXml(origin.hostname, extra).pages) found.add(href);
+    }
+  }
+  return [...found];
 }
 
 export async function crawlSite(
   startUrl: string,
   opts?: { maxPages?: number; timeoutMs?: number },
 ): Promise<CrawledPage[]> {
-  const origin = isSafeHttpUrl(startUrl);
-  if (!origin) throw new Error("Enter a public http(s) website URL.");
+  const checked = isSafeHttpUrl(startUrl);
+  if (!checked) throw new Error("Enter a public http(s) website URL.");
+  const startHref = normalizePageUrl(checked.href, checked.href);
+  if (!startHref) throw new Error("Enter a public http(s) website URL.");
+  const origin = new URL(startHref);
   const maxPages = Math.min(HARD_CAP, Math.max(1, opts?.maxPages ?? DEFAULT_PAGES));
   const timeoutMs = opts?.timeoutMs ?? TIMEOUT_MS;
 
@@ -153,25 +252,17 @@ export async function crawlSite(
   const queue: string[] = [];
   const push = (href: string) => {
     if (pages.length + queue.length >= maxPages) return;
-    try {
-      const next = new URL(href, origin.href);
-      if (next.protocol !== "http:" && next.protocol !== "https:") return;
-      if (next.hostname !== origin.hostname) return;
-      next.hash = "";
-      if (/\.(pdf|jpg|jpeg|png|gif|svg|zip|mp4|webp|css|js)$/i.test(next.pathname)) return;
-      if (seen.has(next.href)) return;
-      seen.add(next.href);
-      queue.push(next.href);
-    } catch {
-      /* ignore */
-    }
+    const normalized = normalizePageUrl(href, origin.href);
+    if (!normalized || seen.has(normalized)) return;
+    const next = isSafeHttpUrl(normalized);
+    if (!next || !looksLikePage(next, origin.hostname)) return;
+    seen.add(normalized);
+    queue.push(normalized);
   };
 
   for (const path of PRIORITY_PATHS) push(new URL(path, origin).href);
-  const sitemapXml = await fetchPage(new URL("/sitemap.xml", origin).href, Math.min(timeoutMs, 4000));
-  if (sitemapXml) {
-    for (const href of sitemapLinks(origin, sitemapXml)) push(href);
-  }
+  const mapped = await discoverFromSitemaps(origin, timeoutMs);
+  for (const href of mapped) push(href);
   for (const link of homeParsed.links) push(link);
 
   const extras = await Promise.all(
