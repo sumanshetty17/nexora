@@ -1,6 +1,6 @@
 const MAX_BYTES = 280_000;
-const DEFAULT_PAGES = 8;
-const HARD_CAP = 12;
+const DEFAULT_PAGES = 20;
+const HARD_CAP = 24;
 const TIMEOUT_MS = 6000;
 
 const PRIVATE_HOST =

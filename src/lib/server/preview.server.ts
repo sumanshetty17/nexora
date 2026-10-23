@@ -32,14 +32,12 @@ function proofMatches(url: string, context: string, pagesRead: number, proof: st
 }
 
 function packPages(pages: { title: string; content: string }[], budget: number): string {
+  if (pages.length === 0 || budget < 200) return "";
+  const slice = Math.max(700, Math.floor(budget / pages.length) - 40);
   let out = "";
   for (const page of pages) {
-    const block = `# ${page.title || "Page"}\n${page.content.slice(0, 6000)}\n\n`;
-    if (out.length + block.length > budget) {
-      const room = budget - out.length;
-      if (room > 400) out += block.slice(0, room);
-      break;
-    }
+    const block = `# ${page.title || "Page"}\n${page.content.slice(0, slice)}\n\n`;
+    if (out.length + block.length > budget) break;
     out += block;
   }
   return out.trim();
@@ -128,7 +126,7 @@ export async function answerFromPublicSite(input: {
   } else {
     const origin = isSafeHttpUrl(url);
     const [pages, research] = await Promise.all([
-      crawlSite(url, { maxPages: 8, timeoutMs: 4500 }),
+      crawlSite(url, { maxPages: 20, timeoutMs: 4000 }),
       origin
         ? researchPublicWeb(origin, origin.hostname.replace(/^www\./, "")).catch(() => [])
         : Promise.resolve([]),
