@@ -26,6 +26,16 @@ export const addKnowledge = createServerFn({ method: "POST" })
     return addKnowledgeForSite(context.userId, data);
   });
 
+export const ingestWebsiteRound = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(
+    (input: { siteId: string; url: string; queue?: string[]; visited?: string[]; seeded?: boolean }) => input,
+  )
+  .handler(async ({ context, data }) => {
+    const { ingestWebsiteRoundForSite } = await import("./knowledge.server");
+    return ingestWebsiteRoundForSite(context.userId, data);
+  });
+
 export const ingestWebsite = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { siteId: string; url: string }) => input)

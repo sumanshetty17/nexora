@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { grokChat, hasXaiKey, parseModelJson } from "./ai";
-import { crawlSite, isSafeHttpUrl } from "./crawl";
+import { crawlSite, isSafeHttpUrl, readSiteRound, type CrawledPage } from "./crawl";
 import { chunkText, queryTerms } from "./rag";
 import { researchPublicWeb } from "./research";
 
@@ -17,7 +17,7 @@ export type SitePreview = {
 
 type Chunk = { title: string; content: string; hits: number };
 
-const CONTEXT_CAP = 48_000;
+const CONTEXT_CAP = 120_000;
 const HIDDEN_TITLE = "Company facts";
 
 function proofFor(url: string, context: string, pagesRead: number): string {
@@ -63,6 +63,45 @@ function rankChunks(question: string, context: string): Chunk[] {
   return (matched.length > 0 ? matched : ranked).slice(0, 8);
 }
 
+function rankPages(question: string, pages: { title: string; content: string }[]): Chunk[] {
+  const terms = queryTerms(question);
+  const chunks = pages.flatMap((page) =>
+    chunkText(page.content).map((content) => ({ title: page.title || "Page", content })),
+  );
+  const ranked = chunks
+    .map((chunk) => ({
+      ...chunk,
+      hits: terms.filter((term) => chunk.content.toLowerCase().includes(term)).length,
+    }))
+    .sort((a, b) => b.hits - a.hits);
+  const matched = ranked.filter((chunk) => chunk.hits > 0);
+  return (matched.length > 0 ? matched : ranked).slice(0, 8);
+}
+
+export async function readPublicRound(input: {
+  url: string;
+  queue?: string[];
+  visited?: string[];
+  seeded?: boolean;
+}): Promise<{
+  pages: CrawledPage[];
+  queue: string[];
+  visited: string[];
+  seeded: boolean;
+  done: boolean;
+  capped: boolean;
+}> {
+  const round = await readSiteRound(input);
+  if (!input.visited?.length) {
+    const origin = isSafeHttpUrl(input.url);
+    if (origin) {
+      const notes = await researchPublicWeb(origin, origin.hostname.replace(/^www\./, "")).catch(() => []);
+      round.pages.push(...notes);
+    }
+  }
+  return round;
+}
+
 function suggest(context: string): string[] {
   const found = context.match(/[A-Z][^?\n]{12,90}\?/g) ?? [];
   return [...new Set(found.map((line) => line.trim()))].slice(0, 3);
@@ -105,6 +144,7 @@ export async function answerFromPublicSite(input: {
   context?: string;
   proof?: string;
   pagesRead?: number;
+  pages?: { title: string; content: string }[];
 }): Promise<SitePreview> {
   const question = input.question.trim();
   if (question.length < 4) throw new Error("Ask a real customer question.");
@@ -114,13 +154,23 @@ export async function answerFromPublicSite(input: {
 
   let context = "";
   let pagesRead = 0;
+  let supplied: { title: string; content: string }[] | null = null;
+  if (input.pages && input.pages.length > 0) {
+    supplied = input.pages.filter((page) => page.content.trim().length > 40).slice(0, 300);
+    pagesRead = supplied.length;
+    context = packPages(supplied, CONTEXT_CAP);
+    if (!context) throw new Error("That site did not return readable text.");
+  }
   const cached =
+    !supplied &&
     input.context &&
     input.proof &&
     typeof input.pagesRead === "number" &&
     proofMatches(url, input.context, input.pagesRead, input.proof);
 
-  if (cached && input.context) {
+  if (supplied) {
+    /* already packed */
+  } else if (cached && input.context) {
     context = input.context;
     pagesRead = input.pagesRead ?? 0;
   } else {
@@ -132,14 +182,14 @@ export async function answerFromPublicSite(input: {
         : Promise.resolve([]),
     ]);
     if (pages.length === 0) throw new Error("That site did not return readable text.");
-    const siteContext = packPages(pages, 36_000);
+    const siteContext = packPages(pages, 100_000);
     const extraContext = packPages(research, 12_000);
     context = [siteContext, extraContext].filter(Boolean).join("\n\n").slice(0, CONTEXT_CAP);
     pagesRead = pages.length;
     if (!context) throw new Error("That site did not return readable text.");
   }
 
-  const chunks = rankChunks(question, context);
+  const chunks = supplied ? rankPages(question, supplied) : rankChunks(question, context);
   let reply = "";
 
   if (hasXaiKey() && chunks.length > 0) {

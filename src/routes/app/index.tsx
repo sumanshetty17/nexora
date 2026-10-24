@@ -5,8 +5,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label, Textarea } from "@/components/ui/input";
+import { ingestEntireSite } from "@/lib/ingest-all";
 import { cloneHarborDemo, createSite, getUsage, listSites, prepareAssistant } from "@/lib/server/sites";
-import { ingestWebsite } from "@/lib/server/knowledge";
 
 export const Route = createFileRoute("/app/")({ component: AppHome });
 
@@ -18,6 +18,7 @@ function AppHome() {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [description, setDescription] = useState("");
+  const [reading, setReading] = useState<string | null>(null);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -27,10 +28,15 @@ function AppHome() {
       let imported = 0;
       if (url.trim()) {
         try {
-          const r = await ingestWebsite({ data: { siteId: site.id, url: url.trim() } });
-          imported = r.imported;
+          setReading("The website is being read. Please wait.");
+          const read = await ingestEntireSite(site.id, url.trim(), (count) => {
+            setReading(`The website is being read. Please wait. ${count} pages read.`);
+          });
+          imported = read.imported;
         } catch {
           /* crawl is optional — user can paste pages next */
+        } finally {
+          setReading(null);
         }
       }
       try {
@@ -122,9 +128,7 @@ function AppHome() {
               placeholder="We sell X, hours are Y, shipping is Z, returns within 30 days…"
             />
           </div>
-          {create.isPending && url.trim() ? (
-            <p className="text-sm text-muted">The website is being read. Please wait.</p>
-          ) : null}
+          {reading ? <p className="text-sm text-muted">{reading}</p> : null}
           <div className="flex flex-wrap gap-3">
             <Button type="submit" disabled={create.isPending}>
               {create.isPending ? "Please wait" : "Create and train"}

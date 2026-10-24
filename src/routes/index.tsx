@@ -9,6 +9,7 @@ import { getWidgetConfig, widgetChat } from "@/lib/server/chat";
 import { DEMO_PUBLIC_ID } from "@/lib/server/demo-content";
 import { captureLead } from "@/lib/server/leads";
 import { previewSite } from "@/lib/server/preview";
+import { readEntireSite, type ReadPage } from "@/lib/read-all";
 import { encodePreviewPack, widgetSnippet } from "@/lib/preview-pack";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
@@ -22,6 +23,8 @@ function TryYourSite() {
   const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
   const [pack, setPack] = useState<{ context: string; proof: string; pagesRead: number } | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [pages, setPages] = useState<ReadPage[]>([]);
+  const [status, setStatus] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [origin, setOrigin] = useState("https://nexora-suman-9b6b.vercel.app");
 
@@ -40,14 +43,22 @@ function TryYourSite() {
     const history = messages.slice(-6);
     setMessages((current) => [...current, { role: "user", content: next }]);
     try {
+      let source = pages;
+      if (source.length === 0) {
+        setStatus("The website is being read. Please wait.");
+        const read = await readEntireSite(url, (count) => {
+          setStatus(`The website is being read. Please wait. ${count} pages read.`);
+        });
+        source = read.pages;
+        setPages(source);
+      }
+      setStatus(null);
       const result = await previewSite({
         data: {
           url,
           question: next,
           history,
-          context: pack?.context,
-          proof: pack?.proof,
-          pagesRead: pack?.pagesRead,
+          pages: source.map((page) => ({ title: page.title, content: page.content })),
         },
       });
       setPack({ context: result.context, proof: result.proof, pagesRead: result.pagesRead });
@@ -68,6 +79,8 @@ function TryYourSite() {
     setSuggestions([]);
     setError(null);
     setQuestion("");
+    setPages([]);
+    setStatus(null);
     setCopied(false);
   }
 
@@ -78,7 +91,7 @@ function TryYourSite() {
           <p className="text-sm font-medium text-primary">Try it on your site</p>
           <h2 className="mt-2 font-display text-4xl tracking-tight">Ask a question your customers already ask.</h2>
           <p className="mt-4 text-muted leading-relaxed">
-            Paste a public URL. Nexora reads a few pages and keeps answering from that text — no account,
+            Paste a public URL. Nexora reads the site's pages and keeps answering from that text — no account,
             and it will not invent a policy that is not on the page.
           </p>
           {snippet ? (
@@ -128,7 +141,9 @@ function TryYourSite() {
                   {message.content}
                 </p>
               ))}
-              {pending ? <p className="text-sm text-muted">The website is being read. Please wait.</p> : null}
+              {pending ? (
+                <p className="text-sm text-muted">{status ?? "The website is being read. Please wait."}</p>
+              ) : null}
             </div>
           ) : null}
           {suggestions.length > 0 && !pending ? (

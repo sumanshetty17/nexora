@@ -276,3 +276,101 @@ export async function crawlSite(
   }
   return pages;
 }
+
+const READ_CAP = 300;
+const READ_BATCH = 4;
+
+export type ReadRound = {
+  pages: CrawledPage[];
+  queue: string[];
+  visited: string[];
+  seeded: boolean;
+  done: boolean;
+  capped: boolean;
+};
+
+export async function readSiteRound(input: {
+  url: string;
+  queue?: string[];
+  visited?: string[];
+  seeded?: boolean;
+}): Promise<ReadRound> {
+  const checked = isSafeHttpUrl(input.url);
+  if (!checked) throw new Error("Enter a public http(s) website URL.");
+  const startHref = normalizePageUrl(checked.href, checked.href);
+  if (!startHref) throw new Error("Enter a public http(s) website URL.");
+  const origin = new URL(startHref);
+
+  const visited = new Set(
+    (input.visited ?? []).filter((item) => typeof item === "string" && item.length < 500),
+  );
+  let queue = (input.queue ?? []).filter((item) => typeof item === "string" && item.length < 500);
+  let seeded = Boolean(input.seeded);
+
+  if (visited.size === 0 && queue.length === 0) {
+    queue = [origin.href];
+    for (const path of PRIORITY_PATHS) {
+      const normalized = normalizePageUrl(new URL(path, origin).href, origin.href);
+      if (normalized && !queue.includes(normalized)) queue.push(normalized);
+    }
+    seeded = true;
+    const mapped = await discoverFromSitemaps(origin, 4000).catch(() => [] as string[]);
+    for (const href of mapped) {
+      if (queue.length >= READ_CAP) break;
+      const normalized = normalizePageUrl(href, origin.href);
+      if (!normalized || queue.includes(normalized)) continue;
+      const safe = isSafeHttpUrl(normalized);
+      if (safe && looksLikePage(safe, origin.hostname)) queue.push(normalized);
+    }
+  }
+
+  if (queue.length === 0 && !seeded) {
+    seeded = true;
+    for (const path of PRIORITY_PATHS) {
+      const normalized = normalizePageUrl(new URL(path, origin).href, origin.href);
+      if (!normalized || visited.has(normalized) || queue.includes(normalized)) continue;
+      queue.push(normalized);
+    }
+  }
+
+  const batch: string[] = [];
+  while (queue.length > 0 && batch.length < READ_BATCH && visited.size < READ_CAP) {
+    const next = queue.shift() ?? "";
+    const normalized = normalizePageUrl(next, origin.href);
+    if (!normalized || visited.has(normalized)) continue;
+    const safe = isSafeHttpUrl(normalized);
+    if (!safe || !looksLikePage(safe, origin.hostname)) continue;
+    visited.add(normalized);
+    batch.push(normalized);
+  }
+
+  const fetched = await Promise.all(
+    batch.map(async (href) => ({ href, html: await fetchPage(href, 4000) })),
+  );
+  const pages: CrawledPage[] = [];
+  for (const item of fetched) {
+    if (!item.html) continue;
+    const page = pageFromHtml(item.href, item.html);
+    if (page) pages.push(page);
+    if (visited.size >= READ_CAP) continue;
+    const found: string[] = [];
+    for (const link of discoverLinks(item.html)) {
+      const normalized = normalizePageUrl(link, item.href);
+      if (!normalized || visited.has(normalized) || queue.includes(normalized) || found.includes(normalized)) continue;
+      const safe = isSafeHttpUrl(normalized);
+      if (!safe || safe.hostname !== origin.hostname || !looksLikePage(safe, origin.hostname)) continue;
+      found.push(normalized);
+    }
+    if (found.length > 0) queue = [...found, ...queue].slice(0, READ_CAP);
+  }
+
+  const capped = visited.size >= READ_CAP && queue.length > 0;
+  return {
+    pages,
+    queue: queue.slice(0, READ_CAP),
+    visited: [...visited].slice(0, READ_CAP),
+    seeded,
+    done: queue.length === 0 || capped,
+    capped,
+  };
+}

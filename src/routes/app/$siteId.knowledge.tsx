@@ -5,7 +5,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label, Textarea } from "@/components/ui/input";
-import { addKnowledge, deleteDoc, generateFaqs, ingestWebsite, listDocs, searchKnowledge } from "@/lib/server/knowledge";
+import { ingestEntireSite } from "@/lib/ingest-all";
+import { addKnowledge, deleteDoc, generateFaqs, listDocs, searchKnowledge } from "@/lib/server/knowledge";
 import { getSite } from "@/lib/server/sites";
 
 export const Route = createFileRoute("/app/$siteId/knowledge")({ component: KnowledgePage });
@@ -21,18 +22,30 @@ function KnowledgePage() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [probe, setProbe] = useState("");
+  const [reading, setReading] = useState<string | null>(null);
 
   useEffect(() => {
     if (site.data?.websiteUrl && !url) setUrl(site.data.websiteUrl);
   }, [site.data?.websiteUrl, url]);
 
   const crawl = useMutation({
-    mutationFn: () => ingestWebsite({ data: { siteId, url } }),
+    mutationFn: () =>
+      ingestEntireSite(siteId, url, (count) => {
+        setReading(`The website is being read. Please wait. ${count} pages read.`);
+      }),
     onSuccess: async (r) => {
+      setReading(null);
       await qc.invalidateQueries({ queryKey: ["docs", siteId] });
-      toast.success(`Read ${r.imported} page${r.imported === 1 ? "" : "s"}`);
+      toast.success(
+        r.capped
+          ? `Read ${r.imported} pages and stopped at the safety limit`
+          : `Read ${r.imported} page${r.imported === 1 ? "" : "s"}`,
+      );
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      setReading(null);
+      toast.error(e.message);
+    },
   });
 
   const add = useMutation({
@@ -120,7 +133,7 @@ function KnowledgePage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <h2 className="font-display text-2xl tracking-tight">Read a website</h2>
-          <p className="mt-1 text-sm text-muted">Public pages on that site, including about, products, pricing, and help.</p>
+          <p className="mt-1 text-sm text-muted">Every public page we can find on that site, then the assistant answers from all of them.</p>
           <form
             className="mt-4 flex flex-col gap-3"
             onSubmit={(e) => {
@@ -135,7 +148,7 @@ function KnowledgePage() {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
             />
-            {crawl.isPending ? <p className="text-sm text-muted">The website is being read. Please wait.</p> : null}
+            {reading ? <p className="text-sm text-muted">{reading}</p> : null}
             <Button type="submit" disabled={crawl.isPending}>
               {crawl.isPending ? "Please wait" : "Crawl and index"}
             </Button>

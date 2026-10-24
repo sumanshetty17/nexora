@@ -2,7 +2,7 @@ import { getSql } from "@/lib/db";
 import { nid } from "@/lib/utils";
 import type { KnowledgeDoc } from "@/lib/types";
 import { mapDoc } from "./serialize";
-import { crawlSite, isSafeHttpUrl } from "./crawl";
+import { crawlSite, isSafeHttpUrl, readSiteRound } from "./crawl";
 import { indexDocument, retrieveChunks } from "./rag";
 import { researchPublicWeb } from "./research";
 import { requireSite } from "./sites.server";
@@ -82,6 +82,64 @@ export async function ingestWebsiteForSite(
     where id = ${data.siteId} and user_id = ${userId}
   `;
   return { imported: pages.length, titles };
+}
+
+export async function ingestWebsiteRoundForSite(
+  userId: string,
+  data: { siteId: string; url: string; queue?: string[]; visited?: string[]; seeded?: boolean },
+): Promise<{
+  imported: number;
+  titles: string[];
+  queue: string[];
+  visited: string[];
+  seeded: boolean;
+  done: boolean;
+  capped: boolean;
+}> {
+  await requireSite(userId, data.siteId);
+  const first = !data.visited?.length;
+  const origin = isSafeHttpUrl(data.url);
+  const [round, research] = await Promise.all([
+    readSiteRound(data),
+    first && origin
+      ? researchPublicWeb(origin, origin.hostname.replace(/^www\./, "")).catch(() => [])
+      : Promise.resolve([]),
+  ]);
+  const sql = await getSql();
+  const titles: string[] = [];
+  const docs = [...round.pages, ...research];
+  for (const page of docs) {
+    const id = nid("doc");
+    const kind = page.title === "Company facts" ? "background" : "url";
+    await sql`
+      insert into knowledge_docs (id, site_id, user_id, kind, title, source_url, content, char_count)
+      values (
+        ${id},
+        ${data.siteId},
+        ${userId},
+        ${kind},
+        ${page.title},
+        ${kind === "background" ? null : page.url},
+        ${page.content},
+        ${page.content.length}
+      )
+    `;
+    await indexDocument(sql, { siteId: data.siteId, docId: id, content: page.content });
+    if (kind !== "background") titles.push(page.title);
+  }
+  await sql`
+    update sites set website_url = ${data.url}, updated_at = now()
+    where id = ${data.siteId} and user_id = ${userId}
+  `;
+  return {
+    imported: titles.length,
+    titles,
+    queue: round.queue,
+    visited: round.visited,
+    seeded: round.seeded,
+    done: round.done,
+    capped: round.capped,
+  };
 }
 
 export async function deleteDocForSite(userId: string, data: { siteId: string; docId: string }) {
