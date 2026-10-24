@@ -4,6 +4,7 @@ export async function ingestEntireSite(
   siteId: string,
   url: string,
   onProgress?: (count: number) => void,
+  cookie?: string,
 ): Promise<{ imported: number; capped: boolean }> {
   let queue: string[] | undefined;
   let visited: string[] | undefined;
@@ -19,7 +20,7 @@ export async function ingestEntireSite(
       seeded: boolean;
       done: boolean;
       capped: boolean;
-    } = await ingestWebsiteRound({ data: { siteId, url, queue, visited, seeded } });
+    } = await ingestWebsiteRound({ data: { siteId, url, queue, visited, seeded, cookie } });
     imported += result.imported;
     queue = result.queue;
     visited = result.visited;

@@ -5,6 +5,7 @@ export type ReadPage = { url: string; title: string; content: string };
 export async function readEntireSite(
   url: string,
   onProgress?: (count: number) => void,
+  cookie?: string,
 ): Promise<{ pages: ReadPage[]; capped: boolean }> {
   let queue: string[] | undefined;
   let visited: string[] | undefined;
@@ -20,7 +21,7 @@ export async function readEntireSite(
       seeded: boolean;
       done: boolean;
       capped: boolean;
-    } = await readSiteRound({ data: { url, queue, visited, seeded } });
+    } = await readSiteRound({ data: { url, queue, visited, seeded, cookie } });
     for (const page of result.pages) {
       pages.push({ url: page.url, title: page.title, content: page.content });
     }

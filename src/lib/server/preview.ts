@@ -1,9 +1,27 @@
 import { createServerFn } from "@tanstack/react-start";
 import type { PreviewTurn, SitePreview } from "./preview.server";
 
+export const openSiteSession = createServerFn({ method: "POST" })
+  .validator(
+    (input: { url: string; loginUrl?: string; username?: string; password?: string; sessionCookies?: string }) => {
+      if (!input || typeof input.url !== "string" || input.url.length > 500) throw new Error("Enter a public website URL.");
+      return {
+        url: input.url.trim(),
+        loginUrl: typeof input.loginUrl === "string" ? input.loginUrl.slice(0, 500) : "",
+        username: typeof input.username === "string" ? input.username.slice(0, 200) : "",
+        password: typeof input.password === "string" ? input.password.slice(0, 200) : "",
+        sessionCookies: typeof input.sessionCookies === "string" ? input.sessionCookies.slice(0, 6000) : "",
+      };
+    },
+  )
+  .handler(async ({ data }) => {
+    const { openSiteSession: open } = await import("./site-login");
+    return open(data);
+  });
+
 export const readSiteRound = createServerFn({ method: "POST" })
   .validator(
-    (input: { url: string; queue?: string[]; visited?: string[]; seeded?: boolean }) => {
+    (input: { url: string; queue?: string[]; visited?: string[]; seeded?: boolean; cookie?: string }) => {
       if (!input || typeof input.url !== "string" || input.url.length < 8 || input.url.length > 500) {
         throw new Error("Enter a public website URL.");
       }
@@ -16,6 +34,7 @@ export const readSiteRound = createServerFn({ method: "POST" })
         queue: clean(input.queue),
         visited: clean(input.visited),
         seeded: Boolean(input.seeded),
+        cookie: typeof input.cookie === "string" ? input.cookie.replace(/[\r\n]/g, "").slice(0, 6000) : "",
       };
     },
   )

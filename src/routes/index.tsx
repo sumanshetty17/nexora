@@ -3,12 +3,13 @@ import { ArrowRight, BookOpen, LineChart, Mail, MessageSquare } from "lucide-rea
 import { useEffect, useState } from "react";
 import { MarketingFooter, MarketingNav } from "@/components/marketing-nav";
 import { Button } from "@/components/ui/button";
+import { SiteAccessFields, emptyAccess, type SiteAccess } from "@/components/site-access";
 import { ChatPanel } from "@/components/chat-panel";
 import { Input, Label } from "@/components/ui/input";
 import { getWidgetConfig, widgetChat } from "@/lib/server/chat";
 import { DEMO_PUBLIC_ID } from "@/lib/server/demo-content";
 import { captureLead } from "@/lib/server/leads";
-import { previewSite } from "@/lib/server/preview";
+import { openSiteSession, previewSite } from "@/lib/server/preview";
 import { readEntireSite, type ReadPage } from "@/lib/read-all";
 import { encodePreviewPack, widgetSnippet } from "@/lib/preview-pack";
 import { createFileRoute, Link } from "@tanstack/react-router";
@@ -25,6 +26,7 @@ function TryYourSite() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [pages, setPages] = useState<ReadPage[]>([]);
   const [status, setStatus] = useState<string | null>(null);
+  const [access, setAccess] = useState<SiteAccess>(emptyAccess);
   const [copied, setCopied] = useState(false);
   const [origin, setOrigin] = useState("https://nexora-suman-9b6b.vercel.app");
 
@@ -46,9 +48,20 @@ function TryYourSite() {
       let source = pages;
       if (source.length === 0) {
         setStatus("The website is being read. Please wait.");
-        const read = await readEntireSite(url, (count) => {
-          setStatus(`The website is being read. Please wait. ${count} pages read.`);
-        });
+        let cookie = "";
+        if (access.username || access.password || access.sessionCookies) {
+          const session = await openSiteSession({ data: { url, ...access } });
+          if (!session.ok) throw new Error(session.error || "Could not sign in to that site.");
+          cookie = session.cookie;
+          setAccess((current) => ({ ...current, password: "" }));
+        }
+        const read = await readEntireSite(
+          url,
+          (count) => {
+            setStatus(`The website is being read. Please wait. ${count} pages read.`);
+          },
+          cookie,
+        );
         source = read.pages;
         setPages(source);
       }
@@ -81,6 +94,7 @@ function TryYourSite() {
     setQuestion("");
     setPages([]);
     setStatus(null);
+    setAccess(emptyAccess);
     setCopied(false);
   }
 
@@ -131,6 +145,7 @@ function TryYourSite() {
               onChange={(e) => setUrl(e.target.value)}
             />
           </div>
+          {!pack ? <SiteAccessFields value={access} onChange={setAccess} disabled={pending} /> : null}
           {messages.length > 0 ? (
             <div className="max-h-72 space-y-3 overflow-y-auto rounded-2xl bg-surface p-4">
               {messages.map((message, index) => (

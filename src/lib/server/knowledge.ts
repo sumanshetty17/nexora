@@ -29,7 +29,10 @@ export const addKnowledge = createServerFn({ method: "POST" })
 export const ingestWebsiteRound = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(
-    (input: { siteId: string; url: string; queue?: string[]; visited?: string[]; seeded?: boolean }) => input,
+    (input: { siteId: string; url: string; queue?: string[]; visited?: string[]; seeded?: boolean; cookie?: string }) => {
+      const cookie = typeof input.cookie === "string" ? input.cookie.replace(/[\r\n]/g, "").slice(0, 6000) : "";
+      return { ...input, cookie };
+    },
   )
   .handler(async ({ context, data }) => {
     const { ingestWebsiteRoundForSite } = await import("./knowledge.server");

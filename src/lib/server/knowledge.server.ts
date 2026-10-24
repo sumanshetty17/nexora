@@ -86,7 +86,7 @@ export async function ingestWebsiteForSite(
 
 export async function ingestWebsiteRoundForSite(
   userId: string,
-  data: { siteId: string; url: string; queue?: string[]; visited?: string[]; seeded?: boolean },
+  data: { siteId: string; url: string; queue?: string[]; visited?: string[]; seeded?: boolean; cookie?: string },
 ): Promise<{
   imported: number;
   titles: string[];

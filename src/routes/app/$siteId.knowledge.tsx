@@ -2,10 +2,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { SiteAccessFields, emptyAccess, type SiteAccess } from "@/components/site-access";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { ingestEntireSite } from "@/lib/ingest-all";
+import { openSiteSession } from "@/lib/server/preview";
 import { addKnowledge, deleteDoc, generateFaqs, listDocs, searchKnowledge } from "@/lib/server/knowledge";
 import { getSite } from "@/lib/server/sites";
 
@@ -23,16 +25,30 @@ function KnowledgePage() {
   const [answer, setAnswer] = useState("");
   const [probe, setProbe] = useState("");
   const [reading, setReading] = useState<string | null>(null);
+  const [access, setAccess] = useState<SiteAccess>(emptyAccess);
 
   useEffect(() => {
     if (site.data?.websiteUrl && !url) setUrl(site.data.websiteUrl);
   }, [site.data?.websiteUrl, url]);
 
   const crawl = useMutation({
-    mutationFn: () =>
-      ingestEntireSite(siteId, url, (count) => {
-        setReading(`The website is being read. Please wait. ${count} pages read.`);
-      }),
+    mutationFn: async () => {
+      let cookie = "";
+      if (access.username || access.password || access.sessionCookies) {
+        const session = await openSiteSession({ data: { url, ...access } });
+        if (!session.ok) throw new Error(session.error || "Could not sign in to that site.");
+        cookie = session.cookie;
+        setAccess((current) => ({ ...current, password: "" }));
+      }
+      return ingestEntireSite(
+        siteId,
+        url,
+        (count) => {
+          setReading(`The website is being read. Please wait. ${count} pages read.`);
+        },
+        cookie,
+      );
+    },
     onSuccess: async (r) => {
       setReading(null);
       await qc.invalidateQueries({ queryKey: ["docs", siteId] });
@@ -133,7 +149,9 @@ function KnowledgePage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <h2 className="font-display text-2xl tracking-tight">Read a website</h2>
-          <p className="mt-1 text-sm text-muted">Every public page we can find on that site, then the assistant answers from all of them.</p>
+          <p className="mt-1 text-sm text-muted">
+            Every page we can open on that site, including pages behind a login you provide and pages linked from buttons.
+          </p>
           <form
             className="mt-4 flex flex-col gap-3"
             onSubmit={(e) => {
@@ -148,6 +166,7 @@ function KnowledgePage() {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
             />
+            <SiteAccessFields value={access} onChange={setAccess} disabled={crawl.isPending} />
             {reading ? <p className="text-sm text-muted">{reading}</p> : null}
             <Button type="submit" disabled={crawl.isPending}>
               {crawl.isPending ? "Please wait" : "Crawl and index"}

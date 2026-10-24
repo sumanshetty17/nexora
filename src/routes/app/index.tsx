@@ -2,10 +2,12 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
+import { SiteAccessFields, emptyAccess, type SiteAccess } from "@/components/site-access";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { ingestEntireSite } from "@/lib/ingest-all";
+import { openSiteSession } from "@/lib/server/preview";
 import { cloneHarborDemo, createSite, getUsage, listSites, prepareAssistant } from "@/lib/server/sites";
 
 export const Route = createFileRoute("/app/")({ component: AppHome });
@@ -19,6 +21,7 @@ function AppHome() {
   const [url, setUrl] = useState("");
   const [description, setDescription] = useState("");
   const [reading, setReading] = useState<string | null>(null);
+  const [access, setAccess] = useState<SiteAccess>(emptyAccess);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -29,12 +32,19 @@ function AppHome() {
       if (url.trim()) {
         try {
           setReading("The website is being read. Please wait.");
+          let cookie = "";
+          if (access.username || access.password || access.sessionCookies) {
+            const session = await openSiteSession({ data: { url: url.trim(), ...access } });
+            if (!session.ok) throw new Error(session.error || "Could not sign in to that site.");
+            cookie = session.cookie;
+            setAccess((current) => ({ ...current, password: "" }));
+          }
           const read = await ingestEntireSite(site.id, url.trim(), (count) => {
             setReading(`The website is being read. Please wait. ${count} pages read.`);
-          });
+          }, cookie);
           imported = read.imported;
-        } catch {
-          /* crawl is optional — user can paste pages next */
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : "Could not read that site.");
         } finally {
           setReading(null);
         }
@@ -128,6 +138,7 @@ function AppHome() {
               placeholder="We sell X, hours are Y, shipping is Z, returns within 30 days…"
             />
           </div>
+          <SiteAccessFields value={access} onChange={setAccess} disabled={create.isPending} />
           {reading ? <p className="text-sm text-muted">{reading}</p> : null}
           <div className="flex flex-wrap gap-3">
             <Button type="submit" disabled={create.isPending}>

@@ -83,6 +83,7 @@ export async function readPublicRound(input: {
   queue?: string[];
   visited?: string[];
   seeded?: boolean;
+  cookie?: string;
 }): Promise<{
   pages: CrawledPage[];
   queue: string[];

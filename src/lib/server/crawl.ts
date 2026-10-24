@@ -131,21 +131,23 @@ function discoverLinks(html: string): string[] {
     found.push(value);
   };
   for (const match of html.matchAll(/<a[^>]+href=["']([^"'#]+)["']/gi)) push(match[1]);
-  for (const match of html.matchAll(/\s(?:data-href|data-to|data-url|data-path)=["']([^"']+)["']/gi)) push(match[1]);
+  for (const match of html.matchAll(/\s(?:data-href|data-to|data-url|data-path|formaction)=["']([^"']+)["']/gi)) push(match[1]);
+  for (const match of html.matchAll(/<form\b[^>]*\saction=["']([^"']+)["']/gi)) push(match[1]);
+  for (const match of html.matchAll(/(?:location(?:\.href)?|window\.open)\s*(?:=|\()\s*["']([^"']+)["']/gi)) push(match[1]);
   for (const match of html.matchAll(/["'](\/(?:[a-zA-Z][a-zA-Z0-9_-]{0,40})(?:\/[a-zA-Z0-9_-]{1,40}){0,3}\/?)["']/g)) {
     push(match[1]);
   }
   return found;
 }
 
-async function fetchPage(url: string, timeoutMs = TIMEOUT_MS): Promise<string | null> {
+async function fetchPage(url: string, timeoutMs = TIMEOUT_MS, cookie?: string): Promise<string | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       signal: controller.signal,
       redirect: "follow",
-      headers: BROWSER_HEADERS,
+      headers: cookie ? { ...BROWSER_HEADERS, cookie } : BROWSER_HEADERS,
     });
     if (!res.ok) return null;
     const type = res.headers.get("content-type") ?? "";
@@ -198,10 +200,10 @@ function locsFromXml(originHost: string, xml: string): { pages: string[]; sitema
   return { pages, sitemaps };
 }
 
-async function discoverFromSitemaps(origin: URL, timeoutMs: number): Promise<string[]> {
+async function discoverFromSitemaps(origin: URL, timeoutMs: number, cookie?: string): Promise<string[]> {
   const found = new Set<string>();
   const seeds = [new URL("/sitemap.xml", origin).href, new URL("/sitemap_index.xml", origin).href];
-  const robots = await fetchPage(new URL("/robots.txt", origin).href, Math.min(timeoutMs, 3500));
+  const robots = await fetchPage(new URL("/robots.txt", origin).href, Math.min(timeoutMs, 3500), cookie);
   if (robots) {
     for (const line of robots.split(/\r?\n/)) {
       if (!line.toLowerCase().startsWith("sitemap:")) continue;
@@ -211,7 +213,7 @@ async function discoverFromSitemaps(origin: URL, timeoutMs: number): Promise<str
     }
   }
   const docs = await Promise.all(
-    [...new Set(seeds)].slice(0, 3).map((href) => fetchPage(href, Math.min(timeoutMs, 3500))),
+    [...new Set(seeds)].slice(0, 3).map((href) => fetchPage(href, Math.min(timeoutMs, 3500), cookie)),
   );
   const nested: string[] = [];
   for (const xml of docs) {
@@ -221,7 +223,7 @@ async function discoverFromSitemaps(origin: URL, timeoutMs: number): Promise<str
     nested.push(...parsed.sitemaps);
   }
   if (found.size < 4 && nested.length > 0) {
-    const extra = await fetchPage(nested[0]!, Math.min(timeoutMs, 3500));
+    const extra = await fetchPage(nested[0]!, Math.min(timeoutMs, 3500), cookie);
     if (extra) {
       for (const href of locsFromXml(origin.hostname, extra).pages) found.add(href);
     }
@@ -294,6 +296,7 @@ export async function readSiteRound(input: {
   queue?: string[];
   visited?: string[];
   seeded?: boolean;
+  cookie?: string;
 }): Promise<ReadRound> {
   const checked = isSafeHttpUrl(input.url);
   if (!checked) throw new Error("Enter a public http(s) website URL.");
@@ -314,7 +317,7 @@ export async function readSiteRound(input: {
       if (normalized && !queue.includes(normalized)) queue.push(normalized);
     }
     seeded = true;
-    const mapped = await discoverFromSitemaps(origin, 4000).catch(() => [] as string[]);
+    const mapped = await discoverFromSitemaps(origin, 4000, input.cookie).catch(() => [] as string[]);
     for (const href of mapped) {
       if (queue.length >= READ_CAP) break;
       const normalized = normalizePageUrl(href, origin.href);
@@ -345,7 +348,7 @@ export async function readSiteRound(input: {
   }
 
   const fetched = await Promise.all(
-    batch.map(async (href) => ({ href, html: await fetchPage(href, 4000) })),
+    batch.map(async (href) => ({ href, html: await fetchPage(href, 4000, input.cookie) })),
   );
   const pages: CrawledPage[] = [];
   for (const item of fetched) {
