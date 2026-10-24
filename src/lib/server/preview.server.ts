@@ -3,6 +3,7 @@ import { grokChat, hasXaiKey, parseModelJson } from "./ai";
 import { crawlSite, isSafeHttpUrl, readSiteRound, type CrawledPage } from "./crawl";
 import { chunkText, queryTerms } from "./rag";
 import { researchPublicWeb } from "./research";
+import { speakReply } from "./speak";
 
 export type PreviewTurn = { role: "user" | "assistant"; content: string };
 
@@ -108,27 +109,6 @@ function suggest(context: string): string[] {
   return [...new Set(found.map((line) => line.trim()))].slice(0, 3);
 }
 
-function extractive(question: string, chunks: Chunk[]): string {
-  const terms = queryTerms(question);
-  const sentences = chunks.flatMap((chunk) =>
-    chunk.content
-      .split(/(?<=[.!?])\s+/)
-      .map((sentence) => sentence.trim())
-      .filter((sentence) => sentence.length > 40)
-      .map((sentence) => ({
-        sentence,
-        hits: terms.filter((term) => sentence.toLowerCase().includes(term)).length,
-      })),
-  );
-  const best = sentences.filter((row) => row.hits > 0).sort((a, b) => b.hits - a.hits).slice(0, 3);
-  if (best.length > 0) return best.map((row) => row.sentence).join(" ");
-  const fallback = chunks.find((chunk) => chunk.title !== HIDDEN_TITLE) ?? chunks[0];
-  if (!fallback) {
-    return "I read the public pages, but I could not find an answer to that. Try a more specific question, or add the policy text when you create the assistant.";
-  }
-  return fallback.content.slice(0, 420).trim();
-}
-
 function cleanHistory(history: PreviewTurn[] | undefined): PreviewTurn[] {
   if (!history) return [];
   return history
@@ -205,7 +185,7 @@ export async function answerFromPublicSite(input: {
         {
           role: "system",
           content:
-            "You answer as a company website assistant. Use only the excerpts. If they do not contain the answer, say you are not sure. Never invent prices or policies. Under 120 words. Return JSON only: {\"reply\": string}.",
+            "You are a person chatting on a company website. Answer the customer's latest question in your own words, the way you would in a normal conversation. Use contractions. Do not paste headings, menus, or sentences from the excerpts. Do not start with the page title. Never invent prices or policies. If the excerpts do not say, say you are not sure and ask one useful follow-up. Under 90 words. Return JSON only: {\"reply\": string}.",
         },
         {
           role: "user",
@@ -220,7 +200,7 @@ export async function answerFromPublicSite(input: {
     }
   }
 
-  if (!reply) reply = extractive(question, chunks);
+  if (!reply) reply = speakReply(question, chunks);
 
   return {
     reply,

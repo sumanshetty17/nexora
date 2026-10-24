@@ -31,6 +31,8 @@ const PRIORITY_PATHS = [
   "/terms",
 ];
 
+const MEMBER_PATHS = ["/account", "/dashboard", "/members", "/portal", "/orders", "/billing", "/profile", "/settings"];
+
 const BROWSER_HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
@@ -56,8 +58,7 @@ function decodeEntities(text: string): string {
     .replace(/</gi, "<")
     .replace(/>/gi, ">")
     .replace(/"/gi, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/'/gi, "'")
+    .replace(/'|&#39;/gi, "'")
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
     .replace(/&/gi, "&");
 }
@@ -315,6 +316,12 @@ export async function readSiteRound(input: {
     for (const path of PRIORITY_PATHS) {
       const normalized = normalizePageUrl(new URL(path, origin).href, origin.href);
       if (normalized && !queue.includes(normalized)) queue.push(normalized);
+    }
+    if (input.cookie) {
+      for (const path of MEMBER_PATHS) {
+        const normalized = normalizePageUrl(new URL(path, origin).href, origin.href);
+        if (normalized && !queue.includes(normalized)) queue.splice(1, 0, normalized);
+      }
     }
     seeded = true;
     const mapped = await discoverFromSitemaps(origin, 4000, input.cookie).catch(() => [] as string[]);

@@ -185,6 +185,7 @@ export async function openSiteSession(input: {
     if (!form) continue;
     form.body.set(form.user, username);
     form.body.set(form.pass, password);
+    const before = serialize(jar);
     let sent: { url: string; status: number; body: string };
     try {
       sent = await request(form.action, start.hostname, jar, {
@@ -201,9 +202,10 @@ export async function openSiteSession(input: {
       lastError = "The login form did not respond.";
       continue;
     }
-    const stillLogin = /\/(login|signin|sign-in|auth)(\/|$|\?)/i.test(sent.url) && /type=["']password["']/i.test(sent.body);
-    if (sent.status >= 400 || stillLogin || jar.size === 0) {
-      lastError = "Still on a login page after submit — check the email and password, or paste the session cookie if the site asks for a code.";
+    const stillLogin = /\/(login|signin|sign-in|auth)(\/|$|\?)/i.test(sent.url);
+    if (sent.status >= 400 || stillLogin || serialize(jar) === before) {
+      lastError =
+        "Still on a login page after submit — check the email and password, or paste the session cookie if the site asks for a code.";
       continue;
     }
     return { ok: true, cookie: serialize(jar).slice(0, 6000), method: "form", error: null };

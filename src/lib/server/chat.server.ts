@@ -7,6 +7,7 @@ import { retrieveChunks } from "./rag";
 import { ensureDemoSite } from "./demo";
 import { mapConversation } from "./serialize";
 import { requireSite } from "./sites.server";
+import { speakReply } from "./speak";
 
 type SiteRow = {
   id: string;
@@ -32,23 +33,7 @@ async function loadSiteByPublicId(publicId: string): Promise<SiteRow | null> {
 }
 
 function extractiveReply(question: string, chunks: { content: string; title: string }[]): string {
-  if (chunks.length === 0) {
-    return "I don't have that in the knowledge base yet. A teammate can follow up if you leave a bit more detail.";
-  }
-  const q = question.toLowerCase();
-  const words = q.split(/[^a-z0-9]+/).filter((w) => w.length > 3);
-  const scored = chunks
-    .map((c) => {
-      const hits = words.filter((w) => c.content.toLowerCase().includes(w)).length;
-      return { c, hits };
-    })
-    .sort((a, b) => b.hits - a.hits);
-  const best = scored[0];
-  if (!best || best.hits === 0) {
-    return "I don't have that in the knowledge base yet. A teammate can follow up if you leave a bit more detail.";
-  }
-  const excerpt = best.c.content.slice(0, 420).trim();
-  return `From ${best.c.title}: ${excerpt}`;
+  return speakReply(question, chunks);
 }
 
 async function bumpTopic(
@@ -147,9 +132,10 @@ async function runTurn(input: {
 ${input.site.system_brief || input.site.description}
 Tone: ${input.site.tone}.
 Rules:
-- Answer only with facts in the knowledge excerpts. If the excerpts do not contain the answer, say you are not sure and offer a human follow-up.
+- Talk like a person in a chat. Answer the latest message in your own words. Do not paste headings or sentences from the excerpts, and do not start with the page title.
+- Use only facts that are in the excerpts. If they do not contain the answer, say you are not sure and ask one useful follow-up.
 - Never invent prices, policies, legal claims, or availability.
-- Keep replies under 140 words unless a procedure needs steps.
+- Keep replies under 90 words unless the customer asked for steps.
 - Return JSON only: {"reply": string, "topic": string, "intent": "question"|"complaint"|"purchase"|"other", "sentiment": "positive"|"neutral"|"frustrated", "resolved": boolean, "needs_human": boolean}.`,
         },
         {
@@ -175,7 +161,7 @@ Rules:
   const sentiment = parsed?.sentiment ?? (/\b(angry|terrible|worst|scam|refund)\b/i.test(message) ? "frustrated" : "neutral");
   const unsure =
     chunks.length === 0 ||
-    /don['’]t have that|not sure|teammate can follow|knowledge base yet/i.test(reply);
+    /don['’]t have that|not sure|teammate can follow|knowledge base yet|don['’]t see that/i.test(reply);
   const needsHuman = Boolean(parsed?.needs_human) || unsure || sentiment === "frustrated";
   const resolved = parsed?.resolved ?? !needsHuman;
   const intent = parsed?.intent ?? "question";
