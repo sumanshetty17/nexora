@@ -1,5 +1,4 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { grokChat, hasXaiKey, parseModelJson } from "./ai";
 import { crawlSite, isSafeHttpUrl, readSiteRound, type CrawledPage } from "./crawl";
 import { chunkText, queryTerms } from "./rag";
 import { researchPublicWeb } from "./research";
@@ -171,36 +170,7 @@ export async function answerFromPublicSite(input: {
   }
 
   const chunks = supplied ? rankPages(question, supplied) : rankChunks(question, context);
-  let reply = "";
-
-  if (hasXaiKey() && chunks.length > 0) {
-    const contextBlock = chunks
-      .map((chunk, i) => `[#${i + 1} ${chunk.title}]\n${chunk.content.slice(0, 900)}`)
-      .join("\n\n");
-    const prior = history.map((turn) => `${turn.role}: ${turn.content}`).join("\n");
-    const result = await grokChat({
-      maxTokens: 450,
-      temperature: 0.3,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a person chatting on a company website. Answer the customer's latest question in your own words, the way you would in a normal conversation. Use contractions. Do not paste headings, menus, or sentences from the excerpts. Do not start with the page title. Never invent prices or policies. If the excerpts do not say, say you are not sure and ask one useful follow-up. Under 90 words. Return JSON only: {\"reply\": string}.",
-        },
-        {
-          role: "user",
-          content: `Excerpts:\n${contextBlock}\n\n${prior ? `Earlier:\n${prior}\n\n` : ""}Customer question: ${question}`,
-        },
-      ],
-    });
-    if (result.ok) {
-      const parsed = parseModelJson<{ reply?: string }>(result.text);
-      reply = parsed?.reply?.trim() || "";
-      if (reply.startsWith("{")) reply = "";
-    }
-  }
-
-  if (!reply) reply = speakReply(question, chunks);
+  const reply = speakReply(question, chunks);
 
   return {
     reply,

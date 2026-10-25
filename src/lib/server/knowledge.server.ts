@@ -167,39 +167,30 @@ export async function generateFaqsForSite(
   `;
   if (docs.length === 0) throw new Error("Add a website or notes first so FAQs have something to draw from.");
 
-  const { grokChat, parseModelJson } = await import("./ai");
-  const corpus = docs
-    .map((d) => `## ${d.title}\n${d.content.slice(0, 2200)}`)
-    .join("\n\n")
-    .slice(0, 12_000);
-
-  const result = await grokChat({
-    maxTokens: 700,
-    temperature: 0.2,
-    messages: [
-      {
-        role: "system",
-        content:
-          'Extract customer FAQs from the source. Return JSON only: {"faqs":[{"q":string,"a":string}]}. 5-8 items. Answers must use only facts in the source. Short, specific, no marketing.',
-      },
-      { role: "user", content: corpus },
-    ],
-  });
-
-  const parsed = result.ok ? parseModelJson<{ faqs?: { q?: string; a?: string }[] }>(result.text) : null;
-  const faqs = (parsed?.faqs ?? []).filter((f) => f.q && f.a);
-  if (faqs.length === 0) {
-    throw new Error(
-      result.ok
-        ? "Could not extract FAQs from that material. Try adding a policy page first."
-        : "AI is not available here — paste FAQs as notes instead.",
-    );
+  const faqs: { q: string; a: string }[] = [];
+  for (const doc of docs) {
+    const text = doc.content.replace(/\s+/g, " ").trim();
+    const questions = text.match(/[A-Z][^?]{12,140}\?/g) ?? [];
+    for (const question of questions) {
+      const at = text.indexOf(question);
+      const answer = text
+        .slice(at + question.length)
+        .trim()
+        .split(/(?<=[.!])\s+/)[0];
+      if (answer && answer.length > 40) faqs.push({ q: question.trim(), a: answer.trim() });
+    }
+    if (questions.length === 0) {
+      const sentence = text.split(/(?<=[.!?])\s+/).find((part) => part.length > 50);
+      if (sentence) faqs.push({ q: `What should I know about ${doc.title}?`, a: sentence.trim() });
+    }
   }
+  const unique = faqs.filter((faq, index) => faqs.findIndex((other) => other.q === faq.q) === index).slice(0, 8);
+  if (unique.length === 0) throw new Error("Could not find questions in those pages. Paste a policy note first.");
 
   const titles: string[] = [];
-  for (const faq of faqs.slice(0, 8)) {
-    const title = faq.q!.trim();
-    const content = `Q: ${title}\nA: ${faq.a!.trim()}`;
+  for (const faq of unique) {
+    const title = faq.q.trim();
+    const content = `Q: ${title}\nA: ${faq.a.trim()}`;
     const id = nid("doc");
     await sql`
       insert into knowledge_docs (id, site_id, user_id, kind, title, content, char_count)

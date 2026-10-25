@@ -1,7 +1,6 @@
 import { getSql } from "@/lib/db";
 import { iso } from "@/lib/utils";
 import type { InsightAction, InsightBundle } from "@/lib/types";
-import { grokChat } from "./ai";
 import { mapTopic } from "./serialize";
 import { requireSite } from "./sites.server";
 import { insertSampleTraffic } from "./demo";
@@ -94,31 +93,19 @@ export async function recommendForSite(userId: string, siteId: string): Promise<
         "No customer questions yet. Install the widget or use the playground so Nexora can see where people get stuck.",
     };
   }
-  const result = await grokChat({
-    maxTokens: 420,
-    messages: [
-      {
-        role: "system",
-        content:
-          "You are an operator's analyst. Write 3 short, concrete recommendations for a business owner based on chatbot traffic. No fluff, no emoji. Plain sentences. Mention the topic names given.",
-      },
-      {
-        role: "user",
-        content: `Topics (hits / frustrated / unresolved):\n${topics
-          .map((t) => `${t.topic}: ${t.hit_count}/${t.frustrated_count}/${t.unresolved_count}`)
-          .join("\n")}\n\nRecent questions:\n${questions.map((q) => `- ${q.content}`).join("\n")}`,
-      },
-    ],
+  const lines = topics.slice(0, 3).map((topic) => {
+    if (topic.frustrated_count > 0) {
+      return `Customers asking about “${topic.topic}” sound frustrated (${topic.frustrated_count} of ${topic.hit_count}). Put a clearer answer on the site.`;
+    }
+    if (topic.unresolved_count > 0) {
+      return `“${topic.topic}” is often left unresolved. Add that answer to the pages the assistant reads.`;
+    }
+    return `“${topic.topic}” comes up often (${topic.hit_count} times). Make that answer easy to find.`;
   });
-  if (!result.ok) {
-    const top = topics[0];
-    return {
-      recommendation: top
-        ? `Customers ask about “${top.topic}” more than anything else. Put a plain-language answer on the site and add it to the knowledge base so the assistant can resolve it without a human.`
-        : "Add the most common questions you hear on sales calls into the knowledge base.",
-    };
+  if (lines.length === 0) {
+    return { recommendation: "Add the questions you hear most often into the knowledge base." };
   }
-  return { recommendation: result.text.trim() };
+  return { recommendation: lines.join(" ") };
 }
 
 export async function seedTrafficForSite(userId: string, siteId: string) {

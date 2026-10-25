@@ -2,7 +2,6 @@ import { getSql } from "@/lib/db";
 import { nid } from "@/lib/utils";
 import type { ChatMessage, ChatTurnResult, Conversation, WidgetConfig } from "@/lib/types";
 import { iso } from "@/lib/utils";
-import { grokChat, hasXaiKey, parseModelJson } from "./ai";
 import { retrieveChunks } from "./rag";
 import { ensureDemoSite } from "./demo";
 import { mapConversation } from "./serialize";
@@ -98,73 +97,16 @@ async function runTurn(input: {
   `;
 
   const chunks = await retrieveChunks(sql, input.site.id, message, 8);
-  const history = await sql<{ role: string; content: string }>`
-    select role, content from messages
-     where conversation_id = ${conversationId}
-     order by created_at desc
-     limit 10
-  `;
-  const chronological = history.reverse();
+  const reply = extractiveReply(message, chunks);
 
-  type ModelOut = {
-    reply?: string;
-    topic?: string;
-    intent?: string;
-    sentiment?: string;
-    resolved?: boolean;
-    needs_human?: boolean;
-  };
-
-  let parsed: ModelOut | null = null;
-  let reply = "";
-
-  if (hasXaiKey()) {
-    const contextBlock = chunks
-      .map((c, i) => `[#${i + 1} ${c.title}]\n${c.content.slice(0, 1100)}`)
-      .join("\n\n");
-    const result = await grokChat({
-      maxTokens: 650,
-      temperature: 0.35,
-      messages: [
-        {
-          role: "system",
-          content: `You are the website assistant for ${input.site.name}.
-${input.site.system_brief || input.site.description}
-Tone: ${input.site.tone}.
-Rules:
-- Talk like a person in a chat. Answer the latest message in your own words. Do not paste headings or sentences from the excerpts, and do not start with the page title.
-- Use only facts that are in the excerpts. If they do not contain the answer, say you are not sure and ask one useful follow-up.
-- Never invent prices, policies, legal claims, or availability.
-- Keep replies under 90 words unless the customer asked for steps.
-- Return JSON only: {"reply": string, "topic": string, "intent": "question"|"complaint"|"purchase"|"other", "sentiment": "positive"|"neutral"|"frustrated", "resolved": boolean, "needs_human": boolean}.`,
-        },
-        {
-          role: "user",
-          content: `Knowledge excerpts:\n${contextBlock || "(none yet)"}\n\nConversation:\n${chronological
-            .map((m) => `${m.role}: ${m.content}`)
-            .join("\n")}\n\nLatest customer message: ${message}`,
-        },
-      ],
-    });
-    if (result.ok) {
-      parsed = parseModelJson<ModelOut>(result.text);
-      reply = parsed?.reply?.trim() || result.text.trim();
-      if (reply.startsWith("{")) {
-        reply = parsed?.reply?.trim() || extractiveReply(message, chunks);
-      }
-    }
-  }
-
-  if (!reply) reply = extractiveReply(message, chunks);
-
-  const topic = parsed?.topic?.trim() || inferTopic(message);
-  const sentiment = parsed?.sentiment ?? (/\b(angry|terrible|worst|scam|refund)\b/i.test(message) ? "frustrated" : "neutral");
+  const topic = inferTopic(message);
+  const sentiment = /\b(angry|terrible|worst|scam|refund)\b/i.test(message) ? "frustrated" : "neutral";
   const unsure =
     chunks.length === 0 ||
     /don['’]t have that|not sure|teammate can follow|knowledge base yet|don['’]t see that/i.test(reply);
-  const needsHuman = Boolean(parsed?.needs_human) || unsure || sentiment === "frustrated";
-  const resolved = parsed?.resolved ?? !needsHuman;
-  const intent = parsed?.intent ?? "question";
+  const needsHuman = unsure || sentiment === "frustrated";
+  const resolved = !needsHuman;
+  const intent = "question";
 
   await sql`
     update messages

@@ -2,7 +2,6 @@ import { getSql } from "@/lib/db";
 import { nid, publicId } from "@/lib/utils";
 import type { Site, SiteReadiness, UsageSummary } from "@/lib/types";
 import { mapSite } from "./serialize";
-import { grokChat, parseModelJson } from "./ai";
 import { indexDocument, retrieveChunks } from "./rag";
 import { DEMO_BRIEF, DEMO_DOCS, DEMO_NAME } from "./demo-content";
 import { insertSampleTraffic } from "./demo";
@@ -131,30 +130,15 @@ export async function prepareAssistantForUser(userId: string, siteId: string): P
     `${site.name} ${site.description} hours shipping returns`,
     8,
   );
-  const corpus = chunks.map((c) => c.content).join("\n\n---\n\n").slice(0, 10_000);
-  const result = await grokChat({
-    maxTokens: 500,
-    messages: [
-      {
-        role: "system",
-        content:
-          "You write a compact brief for a customer-facing website assistant. Return JSON only: {\"brief\": string, \"welcome\": string}. The brief is 180-280 words, second person to the assistant, listing only facts present in the source. Welcome is one sentence.",
-      },
-      {
-        role: "user",
-        content: `Company: ${site.name}\nURL: ${site.websiteUrl ?? "n/a"}\nTone: ${site.tone}\nDescription: ${site.description}\n\nSource material:\n${corpus || site.description}`,
-      },
-    ],
-  });
-  let brief = site.systemBrief;
-  let welcome = site.welcomeMessage;
-  if (result.ok) {
-    const parsed = parseModelJson<{ brief?: string; welcome?: string }>(result.text);
-    if (parsed?.brief) brief = parsed.brief;
-    if (parsed?.welcome) welcome = parsed.welcome;
-  } else if (!brief) {
-    brief = `${site.name} assistant. ${site.description} Tone: ${site.tone}. Answer only from the knowledge base. If unsure, offer a human follow-up.`;
-  }
+  const facts = chunks
+    .map((chunk) => chunk.content.replace(/\s+/g, " ").trim().slice(0, 240))
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(" ");
+  const brief =
+    site.systemBrief ||
+    `${site.name} assistant. ${site.description} Tone: ${site.tone}. Answer only from the pages that were read. If a fact is not there, say so. ${facts}`.trim();
+  const welcome = site.welcomeMessage || `Hi — ask me anything about ${site.name}.`;
   await sql`
     update sites set system_brief = ${brief}, welcome_message = ${welcome}, status = ${"live"}, updated_at = now()
     where id = ${siteId} and user_id = ${userId}

@@ -1,10 +1,10 @@
 import { getSql } from "@/lib/db";
 import { nid } from "@/lib/utils";
 import type { EmailItem } from "@/lib/types";
-import { grokChat, hasXaiKey, parseModelJson } from "./ai";
 import { retrieveChunks } from "./rag";
 import { mapEmail } from "./serialize";
 import { requireSite } from "./sites.server";
+import { speakReply } from "./speak";
 import { DEMO_EMAILS } from "./demo-content";
 
 export async function listEmailsForSite(userId: string, siteId: string): Promise<EmailItem[]> {
@@ -67,58 +67,23 @@ export async function processEmailForSite(
   if (!email) throw new Error("Email not found");
 
   const chunks = await retrieveChunks(sql, data.siteId, `${String(email.subject)} ${String(email.body)}`, 6);
-  const contextBlock = chunks.map((c) => `${c.title}: ${c.content.slice(0, 900)}`).join("\n\n");
-
-  type Out = {
-    severity?: "routine" | "sensitive" | "urgent";
-    status?: "drafted" | "escalated";
-    draft?: string;
-    reason?: string;
-    topic?: string;
-  };
-
-  let out: Out = {};
-  if (hasXaiKey()) {
-    const result = await grokChat({
-      maxTokens: 700,
-      temperature: 0.3,
-      messages: [
-        {
-          role: "system",
-          content: `You are the email assistant for ${site.name}.
-${site.systemBrief || site.description}
-Write as a careful human on the team. JSON only:
-{"severity":"routine"|"sensitive"|"urgent","status":"drafted"|"escalated","draft":string,"reason":string,"topic":string}
-Escalate (status=escalated, severity=urgent) for: legal threats, chargebacks, harassment, safety, large refunds on custom work, press, or anything you cannot answer from knowledge.
-Otherwise draft a complete sendable reply. No placeholders like [Name] if the sender name is known.`,
-        },
-        {
-          role: "user",
-          content: `From: ${email.from_name} <${email.from_email}>\nSubject: ${email.subject}\n\n${email.body}\n\nKnowledge:\n${contextBlock || "(none)"}`,
-        },
-      ],
-    });
-    if (result.ok) out = parseModelJson<Out>(result.text) ?? {};
-  }
-
-  const severity = out.severity === "urgent" || out.severity === "sensitive" ? out.severity : "routine";
-  const escalate =
-    out.status === "escalated" ||
-    severity === "urgent" ||
-    /chargeback|lawyer|sue|refund everything|dispute/i.test(`${email.subject} ${email.body}`);
+  const escalate = /chargeback|lawyer|sue|lawsuit|harass|press inquiry|refund everything|dispute|safety/i.test(
+    `${email.subject} ${email.body}`,
+  );
   const firstName = String(email.from_name).split(" ")[0] || "there";
-  const draft =
-    out.draft?.trim() ||
-    `Hi ${firstName},\n\nThanks for writing — a teammate will follow up shortly.\n\n— ${site.name}`;
+  const answer = speakReply(`${email.subject}. ${email.body}`, chunks);
+  const draft = escalate
+    ? `Hi ${firstName},\n\nThanks for writing. A person on our team will reply to this directly.\n\n— ${site.name}`
+    : `Hi ${firstName},\n\n${answer}\n\n— ${site.name}`;
   const status = escalate ? "escalated" : "drafted";
-  const reason =
-    out.reason?.trim() ||
-    (escalate ? "This looks like it needs a person — legal, money, or tone." : "Routine customer question.");
-  const topic = out.topic?.trim() || null;
+  const reason = escalate
+    ? "This looks like it needs a person — legal, money, or safety."
+    : "Answered from the pages already read.";
+  const topic = String(email.subject).trim().slice(0, 48) || null;
 
   await sql`
     update emails set
-      severity = ${escalate ? "urgent" : severity},
+      severity = ${escalate ? "urgent" : "routine"},
       status = ${status},
       draft_reply = ${draft},
       ai_reason = ${reason},
